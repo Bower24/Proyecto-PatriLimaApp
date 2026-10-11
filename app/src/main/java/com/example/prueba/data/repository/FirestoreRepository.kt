@@ -21,6 +21,7 @@ import java.util.Locale
  * implementada todavía — por ahora se guarda un punto por defecto en el
  * centro del Cercado de Lima. Ver README para el detalle de este pendiente.
  */
+
 class FirestoreRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
