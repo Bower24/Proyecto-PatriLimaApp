@@ -10,6 +10,7 @@ import java.util.UUID
  * devuelve la URL de descarga, que luego se guarda en el campo
  * "foto_url" del documento en la colección "reportes".
  */
+
 class StorageRepository(
     private val storage: FirebaseStorage = FirebaseStorage.getInstance()
 ) {
