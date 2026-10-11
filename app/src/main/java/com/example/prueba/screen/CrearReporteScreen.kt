@@ -67,6 +67,7 @@ import com.patrimonialima.app.ui.theme.YellowAccent
  * Pantalla de creación de un nuevo reporte ciudadano (sección 5.2.4, RF02).
  * Flujo: seleccionar foto -> completar formulario -> enviar -> confirmación.
  */
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CrearReporteScreen(
