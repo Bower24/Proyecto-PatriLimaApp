@@ -1,5 +1,6 @@
 package com.patrimonialima.app.ui.screens.reporte
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -28,15 +29,8 @@ class CrearReporteViewModel(
     private val _estado = MutableStateFlow<EnvioReporteEstado>(EnvioReporteEstado.Idle)
     val estado: StateFlow<EnvioReporteEstado> = _estado.asStateFlow()
 
-    /**
-     * Envía un nuevo reporte ciudadano (RF02).
-     *
-     * @param fotoUri URI local de la imagen elegida/tomada. Es nulo por ahora
-     * porque CrearReporteScreen.kt todavía no integra un selector de imágenes
-     * real (ActivityResultContracts.PickVisualMedia) — ver README, sección
-     * "Pendientes". Si es nulo, el reporte se guarda sin fotografía.
-     */
     fun enviarReporte(
+        context: Context,
         descripcion: String,
         severidad: Severidad,
         direccion: String,
@@ -51,8 +45,12 @@ class CrearReporteViewModel(
         viewModelScope.launch {
             _estado.value = EnvioReporteEstado.Enviando
 
-            val fotoUrl: String? = fotoUri?.let { uri ->
-                storageRepository.subirFotoReporte(uri).getOrNull()
+            val fotoBase64: String? = fotoUri?.let { uri ->
+                try {
+                    storageRepository.subirFoto(context, uri)
+                } catch (e: Exception) {
+                    null
+                }
             }
 
             val resultado = firestoreRepository.crearReporte(
@@ -60,7 +58,7 @@ class CrearReporteViewModel(
                 descripcion = descripcion,
                 direccion = direccion,
                 severidad = severidad,
-                fotoUrl = fotoUrl
+                fotoBase64 = fotoBase64
             )
 
             resultado

@@ -12,6 +12,7 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+
 /**
  * Acceso a las colecciones "bienes_patrimoniales" y "reportes" de Cloud
  * Firestore, con el esquema definido en la sección 4.4 de la tesis.
@@ -40,7 +41,7 @@ class FirestoreRepository(
         descripcion: String,
         direccion: String,
         severidad: Severidad,
-        fotoUrl: String?,
+        fotoBase64: String?, // Cadena Base64 de la imagen comprimida
         idBien: String? = null,
         latitud: Double = -12.0555,
         longitud: Double = -77.0350
@@ -52,7 +53,7 @@ class FirestoreRepository(
                 "descripcion" to descripcion,
                 "direccion" to direccion,
                 "ubicacion" to GeoPoint(latitud, longitud),
-                "foto_url" to fotoUrl,
+                "foto_url" to (fotoBase64 ?: ""), // Guardado directo del Base64
                 "severidad" to severidad.name.lowercase(),
                 "estado" to EstadoReporte.ENVIADO.name.lowercase(),
                 "likes_count" to 0,
@@ -107,31 +108,43 @@ class FirestoreRepository(
     }
 
     private fun DocumentSnapshot.toReporte(): Reporte? {
-        val descripcion = getString("descripcion") ?: return null
-        val geo = getGeoPoint("ubicacion")
-        val severidadTexto = getString("severidad") ?: "leve"
-        val estadoTexto = getString("estado") ?: "enviado"
-        val timestamp = getTimestamp("fecha_creacion")
+        return try {
+            val descripcion = getString("descripcion") ?: getString("titulo") ?: "Sin descripción"
 
-        val severidad = Severidad.values()
-            .find { it.name.equals(severidadTexto, ignoreCase = true) } ?: Severidad.LEVE
-        val estado = EstadoReporte.values()
-            .find { it.name.equals(estadoTexto, ignoreCase = true) } ?: EstadoReporte.ENVIADO
+            // Soporta tanto GeoPoint como campos dobles directos
+            val geo = getGeoPoint("ubicacion")
+            val lat = geo?.latitude ?: getDouble("latitud") ?: 0.0
+            val lng = geo?.longitude ?: getDouble("longitud") ?: 0.0
 
-        return Reporte(
-            id = id,
-            idUsuario = getString("id_usuario") ?: "",
-            idBien = getString("id_bien"),
-            titulo = descripcion.take(60),
-            direccion = getString("direccion") ?: "",
-            fecha = timestamp?.toDate()?.let { formatoFecha.format(it) } ?: "",
-            severidad = severidad,
-            estado = estado,
-            likes = (getLong("likes_count") ?: 0L).toInt(),
-            latitud = geo?.latitude ?: 0.0,
-            longitud = geo?.longitude ?: 0.0,
-            fotoUrl = getString("foto_url"),
-            fechaCreacionMillis = timestamp?.toDate()?.time ?: 0L
-        )
+            val severidadTexto = getString("severidad") ?: "leve"
+            val estadoTexto = getString("estado") ?: "enviado"
+            val timestamp = getTimestamp("fecha_creacion")
+
+            val severidad = Severidad.values()
+                .find { it.name.equals(severidadTexto, ignoreCase = true) } ?: Severidad.LEVE
+
+            val estado = EstadoReporte.values()
+                .find { it.name.equals(estadoTexto, ignoreCase = true) } ?: EstadoReporte.ENVIADO
+
+            Reporte(
+                id = id,
+                idUsuario = getString("id_usuario") ?: "",
+                idBien = getString("id_bien"),
+                titulo = descripcion.take(60),
+                descripcion = descripcion,
+                direccion = getString("direccion") ?: "Sin dirección",
+                fecha = timestamp?.toDate()?.let { formatoFecha.format(it) } ?: getString("fecha") ?: "",
+                severidad = severidad,
+                estado = estado,
+                likes = (getLong("likes_count") ?: getLong("likes") ?: 0L).toInt(),
+                latitud = lat,
+                longitud = lng,
+                fotoUrl = getString("foto_url"),
+                fechaCreacionMillis = timestamp?.toDate()?.time ?: 0L
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }

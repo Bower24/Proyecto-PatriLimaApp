@@ -2,16 +2,17 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.gms.google-services")
 }
 
 android {
-    namespace = "com.example.prueba"
+    namespace = "com.example.patrimonialima"
     compileSdk {
         version = release(36)
     }
 
     defaultConfig {
-        applicationId = "com.example.prueba"
+        applicationId = "com.example.patrimonialima"
         minSdk = 24
         targetSdk = 36
         versionCode = 1
@@ -46,6 +47,9 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    // Navigation para Jetpack Compose
+    implementation("androidx.navigation:navigation-compose:2.8.2")
+    //implementation(libs.firebase.auth.ktx) // o la versión compatible con tu Compose
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Iconos extendidos (History, Map, Logout, CameraAlt, Lightbulb, etc.)
@@ -54,6 +58,23 @@ dependencies {
     // Solo necesario para MapaInteractivoScreen.kt
     implementation("com.google.maps.android:maps-compose:4.4.1")
     implementation("com.google.android.gms:play-services-maps:19.0.0")
+
+    implementation("com.google.firebase:firebase-analytics")
+
+// Usar una versión de BoM compatible con compilador Kotlin previo
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+
+    // Sin versiones explícitas (el BoM definirá las compatibles)
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+
+    implementation("org.mapsforge:mapsforge-map-android:0.25.0")
+
+    implementation("org.mapsforge:mapsforge-themes:0.25.0")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

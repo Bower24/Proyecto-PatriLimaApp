@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -53,11 +54,12 @@ import com.patrimonialima.app.ui.theme.YellowAccent
 
 /**
  * Pantalla de autenticación (RF01), con alternancia entre inicio de sesión
- * y registro mediante un selector de pestañas, replicando el prototipo
- * de Figma documentado en la sección 5.2.1 de la tesis.
+ * y registro mediante un selector de pestañas.
  */
 @Composable
 fun LoginScreen(
+    cargando: Boolean = false,
+    mensajeError: String? = null,
     onLoginSuccess: (correo: String, contrasena: String) -> Unit = { _, _ -> },
     onRegisterSuccess: (nombre: String, correo: String, contrasena: String) -> Unit = { _, _, _ -> }
 ) {
@@ -153,8 +155,20 @@ fun LoginScreen(
                         esPassword = true
                     )
 
+                    // Despliegue de mensaje de error si existe
+                    if (!mensajeError.isNullOrBlank()) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = mensajeError,
+                            color = Color(0xFFD32F2F),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
                     Spacer(Modifier.height(20.dp))
 
+                    // Botón con indicador de carga
                     Button(
                         onClick = {
                             if (modoRegistro) {
@@ -163,13 +177,22 @@ fun LoginScreen(
                                 onLoginSuccess(correo, contrasena)
                             }
                         },
+                        enabled = !cargando && correo.isNotBlank() && contrasena.isNotBlank(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
                     ) {
-                        Text(if (modoRegistro) "Crear cuenta" else "Ingresar", fontWeight = FontWeight.Bold)
+                        if (cargando) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(if (modoRegistro) "Crear cuenta" else "Ingresar", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
