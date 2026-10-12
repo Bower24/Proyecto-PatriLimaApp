@@ -19,6 +19,7 @@ import com.patrimonialima.app.ui.screens.mapa.MapaInteractivoScreen
 import com.patrimonialima.app.ui.screens.mapa.MapaViewModel
 import com.patrimonialima.app.ui.screens.reporte.CrearReporteScreen
 import com.patrimonialima.app.ui.screens.reporte.CrearReporteViewModel
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Grafo de navegación de la aplicación. "login" es el punto de partida;
@@ -85,26 +86,38 @@ fun PatrimonioLimaNavHost(
         }
 
         composable(Routes.CrearReporte.route) {
-            val viewModel: CrearReporteViewModel = viewModel()
+            val context = LocalContext.current
+            val crearReporteViewModel: CrearReporteViewModel = viewModel()
 
             CrearReporteScreen(
                 onVolver = { navController.popBackStack() },
                 onEnviarReporte = { descripcion, severidad, direccion ->
-                    viewModel.enviarReporte(descripcion, severidad, direccion)
+                    crearReporteViewModel.enviarReporte(
+                        context = context,
+                        descripcion = descripcion,
+                        severidad = severidad,
+                        direccion = direccion,
+                        fotoUri = null
+                    )
                 }
             )
         }
 
         composable(Routes.Mapa.route) {
-            val viewModel: MapaViewModel = viewModel()
-            val bienes by viewModel.bienes.collectAsState()
-            val reportes by viewModel.reportesMapa.collectAsState()
+            val mapaViewModel: MapaViewModel = viewModel()
+
+            val bienes by mapaViewModel.bienes.collectAsState()
+            val reportes by mapaViewModel.reportesMapa.collectAsState()
+            val zonasCriticas by mapaViewModel.zonasCriticas.collectAsState()
 
             MapaInteractivoScreen(
                 bienes = bienes,
                 reportes = reportes,
+                zonasCriticas = zonasCriticas,
                 onVolver = { navController.popBackStack() }
             )
+
+            //MapaMapsforgeScreen()
         }
     }
 }
