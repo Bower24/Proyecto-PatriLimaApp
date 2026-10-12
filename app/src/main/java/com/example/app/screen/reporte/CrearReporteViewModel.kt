@@ -30,11 +30,10 @@ class CrearReporteViewModel(
     val estado: StateFlow<EnvioReporteEstado> = _estado.asStateFlow()
 
     fun enviarReporte(
-        context: Context,
         descripcion: String,
         severidad: Severidad,
         direccion: String,
-        fotoUri: Uri? = null
+        fotoBase64: String? = null
     ) {
         val idUsuario = authRepository.uidActual
         if (idUsuario == null) {
@@ -44,14 +43,6 @@ class CrearReporteViewModel(
 
         viewModelScope.launch {
             _estado.value = EnvioReporteEstado.Enviando
-
-            val fotoBase64: String? = fotoUri?.let { uri ->
-                try {
-                    storageRepository.subirFoto(context, uri)
-                } catch (e: Exception) {
-                    null
-                }
-            }
 
             val resultado = firestoreRepository.crearReporte(
                 idUsuario = idUsuario,
