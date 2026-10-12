@@ -1,5 +1,7 @@
 package com.patrimonialima.app.domain.model
 
+import com.google.android.gms.maps.model.LatLng
+
 /**
  * Estados del ciclo de vida de un reporte (campo "estado" de la colección
  * reportes, sección 4.4 del Capítulo IV).
@@ -40,11 +42,24 @@ data class BienPatrimonial(
  */
 data class Reporte(
     val id: String,
-    val titulo: String,
-    val direccion: String,
-    val fecha: String,
-    val severidad: Severidad,
-    val estado: EstadoReporte,
-    val likes: Int,
+    val idUsuario: String = "",
+    val idBien: String? = null,
+    val titulo: String = "",
+    val descripcion: String = "",
+    val direccion: String = "",
+    val latitud: Double = 0.0,
+    val longitud: Double = 0.0,
+    val fecha: String = "",
+    val fechaCreacionMillis: Long = 0L,
+    val severidad: Severidad = Severidad.LEVE,
+    val estado: EstadoReporte = EstadoReporte.ENVIADO,
+    val likes: Int = 0,
     val fotoUrl: String? = null
+)
+
+data class ReporteMapa(
+    val id: String,
+    val posicion: LatLng,
+    val severidad: Severidad,
+    val descripcion: String = "" // Con valor por defecto para no romper usos previos
 )
