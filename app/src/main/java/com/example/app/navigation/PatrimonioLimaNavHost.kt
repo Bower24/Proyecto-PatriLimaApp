@@ -1,6 +1,7 @@
 package com.patrimonialima.app.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -20,6 +21,8 @@ import com.patrimonialima.app.ui.screens.mapa.MapaViewModel
 import com.patrimonialima.app.ui.screens.reporte.CrearReporteScreen
 import com.patrimonialima.app.ui.screens.reporte.CrearReporteViewModel
 import androidx.compose.ui.platform.LocalContext
+import com.patrimonialima.app.ui.screens.admin.AdminScreen
+import com.patrimonialima.app.ui.screens.reporte.EnvioReporteEstado
 
 /**
  * Grafo de navegación de la aplicación. "login" es el punto de partida;
@@ -66,6 +69,7 @@ fun PatrimonioLimaNavHost(
                 onNuevoReporte = { navController.navigate(Routes.CrearReporte.route) },
                 onVerHistorial = { navController.navigate(Routes.Historial.route) },
                 onVerMapa = { navController.navigate(Routes.Mapa.route) },
+                onIrAAdmin = { navController.navigate(Routes.Admin.route) },
                 onCerrarSesion = {
                     viewModel.cerrarSesion()
                     navController.navigate(Routes.Login.route) {
@@ -86,19 +90,27 @@ fun PatrimonioLimaNavHost(
         }
 
         composable(Routes.CrearReporte.route) {
-            val context = LocalContext.current
             val crearReporteViewModel: CrearReporteViewModel = viewModel()
+            val estadoEnvio by crearReporteViewModel.estado.collectAsState()
+
+            // Opcional: Si quieres que regrese automáticamente al terminar con éxito
+            LaunchedEffect(estadoEnvio) {
+                if (estadoEnvio is EnvioReporteEstado.Exito) {
+                    crearReporteViewModel.reiniciarEstado()
+                    navController.popBackStack()
+                }
+            }
 
             CrearReporteScreen(
                 onVolver = { navController.popBackStack() },
-                onEnviarReporte = { descripcion, severidad, direccion ->
+                onEnviarReporte = { direccion, descripcion, severidad, imagenBase64 ->
                     crearReporteViewModel.enviarReporte(
-                        context = context,
                         descripcion = descripcion,
                         severidad = severidad,
                         direccion = direccion,
-                        fotoUri = null
+                        fotoBase64 = imagenBase64
                     )
+                    true
                 }
             )
         }
@@ -117,7 +129,13 @@ fun PatrimonioLimaNavHost(
                 onVolver = { navController.popBackStack() }
             )
 
-            //MapaMapsforgeScreen()
+
         }
+        composable(Routes.Admin.route) {
+            AdminScreen(
+                onVolver = { navController.popBackStack() }
+            )
+        }
+
     }
 }

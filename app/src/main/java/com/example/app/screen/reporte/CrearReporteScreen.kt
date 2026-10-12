@@ -1,5 +1,13 @@
 package com.patrimonialima.app.ui.screens.reporte
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.launch
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,26 +16,28 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -38,248 +48,255 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.patrimonialima.app.domain.model.Severidad
-import com.patrimonialima.app.ui.theme.AmberBg
-import com.patrimonialima.app.ui.theme.AmberText
-import com.patrimonialima.app.ui.theme.BackgroundLight
 import com.patrimonialima.app.ui.theme.BluePrimary
-import com.patrimonialima.app.ui.theme.BorderGray
-import com.patrimonialima.app.ui.theme.GreenBg
-import com.patrimonialima.app.ui.theme.GreenText
-import com.patrimonialima.app.ui.theme.PatrimonioLimaTheme
-import com.patrimonialima.app.ui.theme.RedBg
-import com.patrimonialima.app.ui.theme.RedText
-import com.patrimonialima.app.ui.theme.TextDark
-import com.patrimonialima.app.ui.theme.TextGray
-import com.patrimonialima.app.ui.theme.YellowAccent
-
-/**
- * Pantalla de creación de un nuevo reporte ciudadano (sección 5.2.4, RF02).
- * Flujo: seleccionar foto -> completar formulario -> enviar -> confirmación.
- */
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CrearReporteScreen(
-    onVolver: () -> Unit = {},
-    onEnviarReporte: (descripcion: String, severidad: Severidad, direccion: String) -> Unit = { _, _, _ -> }
+    onVolver: () -> Unit,
+    onEnviarReporte: suspend (direccion: String, descripcion: String, severidad: Severidad, imagenBase64: String?) -> Boolean
 ) {
-    var fotoSeleccionada by remember { mutableStateOf(false) }
-    var descripcion by remember { mutableStateOf("") }
-    var severidad by remember { mutableStateOf(Severidad.MODERADO) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var direccion by remember { mutableStateOf("") }
-    var mostrarConfirmacion by remember { mutableStateOf(false) }
+    var descripcion by remember { mutableStateOf("") }
+    var severidadSeleccionada by remember { mutableStateOf(Severidad.LEVE) }
+
+    // Estados para la imagen
+    var bitmapActual by remember { mutableStateOf<Bitmap?>(null) }
+    var imagenBase64 by remember { mutableStateOf<String?>(null) }
+    var mostrarDialogoOrigen by remember { mutableStateOf(false) }
+    var enviando by remember { mutableStateOf(false) }
+
+    // Función auxiliar para comprimir a Base64 sin sobrecargar Firestore (< 1MB)
+    fun procesarBitmap(bitmapOriginal: Bitmap) {
+        val maxDim = 800
+        val ratio = minOf(maxDim.toFloat() / bitmapOriginal.width, maxDim.toFloat() / bitmapOriginal.height, 1.0f)
+        val nuevoAncho = (bitmapOriginal.width * ratio).toInt()
+        val nuevoAlto = (bitmapOriginal.height * ratio).toInt()
+
+        val escalado = Bitmap.createScaledBitmap(bitmapOriginal, nuevoAncho, nuevoAlto, true)
+        val stream = ByteArrayOutputStream()
+        escalado.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+        val bytes = stream.toByteArray()
+
+        bitmapActual = escalado
+        imagenBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }
+
+    // 1. Selector de Galería
+    val launcherGaleria = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(it)?.use { input ->
+                        val bmp = BitmapFactory.decodeStream(input)
+                        if (bmp != null) {
+                            withContext(Dispatchers.Main) {
+                                procesarBitmap(bmp)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    // 2. Launcher de Cámara nativa (Toma directa de foto)
+    val launcherCamara = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bmp: Bitmap? ->
+        bmp?.let {
+            procesarBitmap(it)
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Nuevo Reporte", fontWeight = FontWeight.Bold) },
+                title = { Text("Registrar Daño Patrimonial", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onVolver) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = androidx.compose.ui.graphics.Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = BluePrimary,
-                    titleContentColor = Color.White
+                    titleContentColor = androidx.compose.ui.graphics.Color.White
                 )
             )
-        },
-        containerColor = BackgroundLight
+        }
     ) { padding ->
         Column(
             modifier = Modifier
+                .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text("Fotografía del daño", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextDark)
-            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = direccion,
+                onValueChange = { direccion = it },
+                label = { Text("Ubicación o Jr. de referencia") },
+                placeholder = { Text("Ej. Jr. Áncash 338, Cercado de Lima") },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-            if (!fotoSeleccionada) {
-                Button(
-                    onClick = { fotoSeleccionada = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
-                ) {
-                    Icon(Icons.Default.CameraAlt, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Tomar foto")
-                }
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = { fotoSeleccionada = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.Image, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Seleccionar de galería")
-                }
-            } else {
-                FotoPreview(onCambiarFoto = { fotoSeleccionada = false })
+            OutlinedTextField(
+                value = descripcion,
+                onValueChange = { descripcion = it },
+                label = { Text("Descripción del daño detectado") },
+                placeholder = { Text("Ej. Fisura profunda en fachada de adobe...") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth()
+            )
 
-                Spacer(Modifier.height(16.dp))
-                Text("Descripción del daño", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextDark)
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = descripcion,
-                    onValueChange = { descripcion = it },
-                    placeholder = {
-                        Text("Describe el daño observado (grietas, desprendimiento, humedad, etc.)", fontSize = 12.sp)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(90.dp),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(Modifier.height(16.dp))
-                Text("Nivel de daño", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextDark)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Severidad.values().forEach { opcion ->
-                        SeveridadOption(
-                            severidad = opcion,
-                            seleccionada = severidad == opcion,
-                            modifier = Modifier.weight(1f)
-                        ) { severidad = opcion }
+            Text("Nivel de Severidad", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Severidad.values().forEach { s ->
+                    val seleccionado = s == severidadSeleccionada
+                    Button(
+                        onClick = { severidadSeleccionada = s },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (seleccionado) BluePrimary else androidx.compose.ui.graphics.Color.LightGray
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(s.label, fontSize = 11.sp, color = if (seleccionado) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.DarkGray)
                     }
                 }
+            }
 
-                Spacer(Modifier.height(16.dp))
-                Text("Dirección del edificio", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextDark)
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = direccion,
-                    onValueChange = { direccion = it },
-                    placeholder = { Text("Av. Abancay 123, Cercado de Lima", fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
+            Text("Fotografía de evidencia", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
 
-                Spacer(Modifier.height(14.dp))
-                Row(
+            // Contenedor de la foto / Botón de captura
+            if (bitmapActual != null) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(AmberBg, RoundedCornerShape(10.dp))
-                        .padding(12.dp)
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, androidx.compose.ui.graphics.Color.Gray, RoundedCornerShape(12.dp))
                 ) {
-                    Icon(
-                        Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = AmberText,
-                        modifier = Modifier.size(16.dp)
+                    Image(
+                        bitmap = bitmapActual!!.asImageBitmap(),
+                        contentDescription = "Foto reporte",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Asegúrate de que la foto muestre claramente el daño y que la dirección sea " +
-                            "precisa para facilitar la evaluación.",
-                        fontSize = 11.sp,
-                        color = AmberText
-                    )
+                    IconButton(
+                        onClick = {
+                            bitmapActual = null
+                            imagenBase64 = null
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Eliminar foto", tint = androidx.compose.ui.graphics.Color.White)
+                    }
                 }
-
-                Spacer(Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        onEnviarReporte(descripcion, severidad, direccion)
-                        mostrarConfirmacion = true
-                    },
-                    enabled = descripcion.isNotBlank() && direccion.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = YellowAccent, contentColor = TextDark)
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(androidx.compose.ui.graphics.Color(0xFFF1F1F1))
+                        .border(1.dp, androidx.compose.ui.graphics.Color(0xFFCCCCCC), RoundedCornerShape(12.dp))
+                        .clickable { mostrarDialogoOrigen = true },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Enviar Reporte", fontWeight = FontWeight.Bold)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.AddAPhoto, contentDescription = "Adjuntar foto", tint = BluePrimary, modifier = Modifier.size(36.dp))
+                        Spacer(Modifier.height(6.dp))
+                        Text("Adjuntar foto (Cámara o Galería)", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.DarkGray)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    if (direccion.isNotBlank() && descripcion.isNotBlank() && !enviando) {
+                        enviando = true
+                        scope.launch {
+                            val res = onEnviarReporte(direccion, descripcion, severidadSeleccionada, imagenBase64)
+                            enviando = false
+                            if (res) onVolver()
+                        }
+                    }
+                },
+                enabled = !enviando && direccion.isNotBlank() && descripcion.isNotBlank(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
+            ) {
+                if (enviando) {
+                    CircularProgressIndicator(color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(24.dp))
+                } else {
+                    Text("Enviar Reporte Ciudadano", fontWeight = FontWeight.Bold)
                 }
             }
         }
     }
 
-    if (mostrarConfirmacion) {
+    // Diálogo modal para elegir Cámara o Galería
+    if (mostrarDialogoOrigen) {
         AlertDialog(
-            onDismissRequest = { mostrarConfirmacion = false },
+            onDismissRequest = { mostrarDialogoOrigen = false },
+            title = { Text("Seleccionar origen") },
+            text = { Text("¿Cómo deseas adjuntar la fotografía del monumento?") },
             confirmButton = {
-                TextButton(onClick = {
-                    mostrarConfirmacion = false
-                    onVolver()
-                }) {
-                    Text("Aceptar")
+                TextButton(
+                    onClick = {
+                        mostrarDialogoOrigen = false
+                        launcherCamara.launch()
+                    }
+                ) {
+                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Cámara")
                 }
             },
-            icon = { Icon(Icons.Default.Send, contentDescription = null, tint = GreenText) },
-            title = { Text("¡Reporte Enviado!") },
-            text = { Text("Gracias por contribuir a la conservación del patrimonio") }
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        mostrarDialogoOrigen = false
+                        launcherGaleria.launch("image/*")
+                    }
+                ) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Galería")
+                }
+            }
         )
-    }
-}
-
-@Composable
-private fun FotoPreview(onCambiarFoto: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(200.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Brush.verticalGradient(listOf(Color(0xFF6EA8FF), Color(0xFF3A6DF0)))),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("Foto simulada de edificio patrimonial", color = Color.White, fontSize = 13.sp)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(10.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(RedText)
-                .clickable { onCambiarFoto() }
-                .padding(horizontal = 10.dp, vertical = 6.dp)
-        ) {
-            Text("Cambiar foto", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun SeveridadOption(
-    severidad: Severidad,
-    seleccionada: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val (fondo, texto) = when {
-        !seleccionada -> Color.White to TextGray
-        severidad == Severidad.LEVE -> GreenBg to GreenText
-        severidad == Severidad.MODERADO -> AmberBg to AmberText
-        else -> RedBg to RedText
-    }
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, if (seleccionada) Color.Transparent else BorderGray, RoundedCornerShape(10.dp))
-            .background(fondo)
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(severidad.label, color = texto, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun CrearReporteScreenPreview() {
-    PatrimonioLimaTheme {
-        CrearReporteScreen()
     }
 }

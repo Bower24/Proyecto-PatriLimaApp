@@ -6,4 +6,6 @@ sealed class Routes(val route: String) {
     object Historial : Routes("historial")
     object CrearReporte : Routes("crear_reporte")
     object Mapa : Routes("mapa")
+
+    object Admin : Routes("admin")
 }

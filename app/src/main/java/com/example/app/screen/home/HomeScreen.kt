@@ -18,15 +18,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,8 +41,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.firebase.auth.FirebaseAuth
 import com.patrimonialima.app.ui.theme.BackgroundLight
 import com.patrimonialima.app.ui.theme.BlueBg
+import com.patrimonialima.app.ui.theme.BluePrimary
 import com.patrimonialima.app.ui.theme.BlueText
 import com.patrimonialima.app.ui.theme.PatrimonioGradient
 import com.patrimonialima.app.ui.theme.PatrimonioLimaTheme
@@ -53,11 +59,6 @@ data class ContribucionUsuario(
     val likesRecibidos: Int
 )
 
-/**
- * Panel principal de la aplicación (sección 5.2.2 de la tesis).
- * Punto de entrada a creación de reportes, historial y mapa, más
- * contenido educativo rotativo (RF10).
- */
 @Composable
 fun HomeScreen(
     nombreUsuario: String = "Usuario",
@@ -67,12 +68,26 @@ fun HomeScreen(
         likesRecibidos = 47
     ),
     datoEducativo: String = "Lima fue fundada en 1535 y su centro histórico fue declarado " +
-        "Patrimonio de la Humanidad por UNESCO en 1988.",
+            "Patrimonio de la Humanidad por UNESCO en 1988.",
     onNuevoReporte: () -> Unit = {},
     onVerHistorial: () -> Unit = {},
     onVerMapa: () -> Unit = {},
+    onIrAAdmin: () -> Unit = {},
     onCerrarSesion: () -> Unit = {}
 ) {
+    // Verificación de credenciales de administrador
+    val auth = remember { FirebaseAuth.getInstance() }
+    val correoActual = auth.currentUser?.email.orEmpty().lowercase()
+
+    // Lista de correos con privilegios administrativos (puedes agregar tu correo de prueba aquí)
+    val correosAdmin = listOf(
+        "admin@prolima.gob.pe",
+        "admin@patrimonio.pe",
+        "admin@example.pe"
+
+    )
+    val esAdministrador = correoActual in correosAdmin || correoActual.startsWith("admin")
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -95,8 +110,22 @@ fun HomeScreen(
                     Text("Patrimonio Lima", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Text("Bienvenido, $nombreUsuario", color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
                 }
-                IconButton(onClick = onCerrarSesion) {
-                    Icon(Icons.Default.Logout, contentDescription = "Cerrar sesión", tint = Color.White)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Ícono de Admin: visible únicamente si el usuario es administrador
+                    if (esAdministrador) {
+                        IconButton(onClick = onIrAAdmin) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = "Panel PROLIMA",
+                                tint = YellowAccent
+                            )
+                        }
+                    }
+
+                    IconButton(onClick = onCerrarSesion) {
+                        Icon(Icons.Default.Logout, contentDescription = "Cerrar sesión", tint = Color.White)
+                    }
                 }
             }
 
@@ -116,6 +145,39 @@ fun HomeScreen(
         }
 
         Column(modifier = Modifier.padding(16.dp)) {
+
+            // Botón destacado de Gestión PROLIMA (solo visible para Administradores)
+            if (esAdministrador) {
+                Card(
+                    onClick = onIrAAdmin,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = BluePrimary)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(Color.White.copy(alpha = 0.2f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.AdminPanelSettings, contentDescription = null, tint = Color.White)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Panel de Gestión (PROLIMA)", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp)
+                            Text("Revisar y actualizar estado de reportes", fontSize = 11.sp, color = Color.White.copy(alpha = 0.8f))
+                        }
+                    }
+                }
+            }
 
             // CTA principal: Nuevo Reporte (RF02)
             Row(
