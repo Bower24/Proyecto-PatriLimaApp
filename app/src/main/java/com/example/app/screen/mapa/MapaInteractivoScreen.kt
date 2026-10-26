@@ -82,11 +82,9 @@ fun MapaInteractivoScreen(
     var cargandoMapa by remember { mutableStateOf(true) }
     var errorMapa by remember { mutableStateOf<String?>(null) }
 
-    // Copiar mapa desde assets al almacenamiento interno una sola vez
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {
-                // Busca 'lima.map' (o 'peru.map' si aún usas el grande)
                 val nombreArchivo = if (context.assets.list("")?.contains("lima.map") == true) "lima.map" else "peru.map"
                 val destino = File(context.filesDir, nombreArchivo)
 
@@ -130,7 +128,6 @@ fun MapaInteractivoScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
 
-            // Chips de filtro
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 modifier = Modifier.padding(vertical = 10.dp),
@@ -149,7 +146,6 @@ fun MapaInteractivoScreen(
                 }
             }
 
-            // Contenedor del Mapa Mapsforge
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -205,8 +201,8 @@ fun MapaInteractivoScreen(
                     )
                 } else {
                     zonasCriticas.forEach { zona ->
-                        val tieneSevero = zona.reportes.any { it.severidad == Severidad.SEVERO }
-                        val tieneModerado = zona.reportes.any { it.severidad == Severidad.MODERADO }
+                        val tieneSevero = zona.reportes.any { it.severidad.toString().contains("SEVERO", ignoreCase = true) }
+                        val tieneModerado = zona.reportes.any { it.severidad.toString().contains("MODERADO", ignoreCase = true) }
                         val color = when {
                             tieneSevero -> RedText
                             tieneModerado -> AmberText
@@ -228,7 +224,7 @@ fun MapaInteractivoScreen(
                             val cant = zona.reportes.size
                             val etiquetaCantidad = if (cant == 1) "reporte" else "reportes"
                             Text(
-                                text = "$cant $etiquetaCantidad (Criticidad: ${zona.criticidad})",
+                                text = "$cant $etiquetaCantidad (Criticidad: ${zona.criticidadAcumulada})",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = color
@@ -263,18 +259,15 @@ private fun MapaMapsforgeNativo(
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
-    // Actualizar marcadores al cambiar los filtros o listas
     LaunchedEffect(filtro, bienes, reportes, zonasCriticas, mapViewRef) {
         val mapView = mapViewRef ?: return@LaunchedEffect
         val layerManager = mapView.layerManager
 
-        // Corrección del error de size(): Mapsforge usa el método Java size() o remove()
-        // Conservamos la capa 0 (el mapa base) y removemos el resto
         while (layerManager.layers.size() > 1) {
             layerManager.layers.remove(layerManager.layers.size() - 1)
         }
 
-        // 1. Zonas Críticas: Círculos translúcidos de 100m (Algoritmo A1)
+        // 1. Zonas Críticas: Círculos translúcidos de 100m sobre el centroide exacto
         if (filtro == "Todos" || filtro == "Zonas críticas") {
             zonasCriticas.forEach { zona ->
                 val paintRelleno = AndroidGraphicFactory.INSTANCE.createPaint().apply {
@@ -287,30 +280,8 @@ private fun MapaMapsforgeNativo(
                     setStyle(Style.STROKE)
                 }
 
-                // Corrección de coordenadas:
-                // Si tu modelo tiene latitud/longitud directas, usa: zona.latitud, zona.longitud
-                // Si calcula el centroide a partir del primer reporte o promedio de sus reportes:
-                val lat = if (zona.reportes.isNotEmpty()) {
-                    var sumaLat = 0.0
-                    for (r in zona.reportes) {
-                        sumaLat += r.latitud
-                    }
-                    sumaLat / zona.reportes.size
-                } else {
-                    -12.0465
-                }
-
-                val lon = if (zona.reportes.isNotEmpty()) {
-                    var sumaLon = 0.0
-                    for (r in zona.reportes) {
-                        sumaLon += r.longitud
-                    }
-                    sumaLon / zona.reportes.size
-                } else {
-                    -77.0305
-                }
                 val circle = Circle(
-                    LatLong(lat, lon),
+                    LatLong(zona.centroideLat, zona.centroideLon),
                     100f,
                     paintRelleno,
                     paintBorde
@@ -319,7 +290,7 @@ private fun MapaMapsforgeNativo(
             }
         }
 
-        // 2. Bienes Patrimoniales (Azul)
+        // 2. Bienes Patrimoniales (Puntos azules)
         if (filtro == "Todos" || filtro == "Bienes patrimoniales") {
             val paintBien = AndroidGraphicFactory.INSTANCE.createPaint().apply {
                 color = android.graphics.Color.rgb(33, 150, 243)
@@ -334,10 +305,11 @@ private fun MapaMapsforgeNativo(
         // 3. Reportes de daño (Puntos según severidad)
         if (filtro == "Todos" || filtro == "Reportes activos") {
             reportes.forEach { rep ->
-                val colorArgb = when (rep.severidad) {
-                    Severidad.LEVE -> android.graphics.Color.rgb(76, 175, 80)
-                    Severidad.MODERADO -> android.graphics.Color.rgb(255, 152, 0)
-                    Severidad.SEVERO -> android.graphics.Color.rgb(244, 67, 54)
+                val severidadStr = rep.severidad.toString().uppercase()
+                val colorArgb = when {
+                    severidadStr.contains("SEVERO") -> android.graphics.Color.rgb(244, 67, 54)
+                    severidadStr.contains("MODERADO") -> android.graphics.Color.rgb(255, 152, 0)
+                    else -> android.graphics.Color.rgb(76, 175, 80)
                 }
                 val paintRep = AndroidGraphicFactory.INSTANCE.createPaint().apply {
                     color = colorArgb
@@ -377,7 +349,6 @@ private fun MapaMapsforgeNativo(
                 capa.setXmlRenderTheme(MapsforgeThemes.DEFAULT)
                 layerManager.layers.add(capa)
 
-                // Coordenadas fijas del Centro Histórico de Lima
                 setCenter(LatLong(-12.0465, -77.0305))
                 setZoomLevel(15.toByte())
 
