@@ -158,8 +158,7 @@ fun HomeScreen(
     }
 
     // Validación de rol administrativo
-    val correosAdmin = listOf("admin@prolima.gob.pe", "admin@patrimonio.pe")
-    val esAdministrador = correoActual in correosAdmin || correoActual.startsWith("admin")
+    val esAdministrador = correoActual.endsWith("@prolima.gob.pe")
 
     Column(
         modifier = Modifier

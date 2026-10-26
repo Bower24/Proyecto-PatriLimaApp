@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+
+    // Regla institucional: validación de rol de supervisor PROLIMA
+    function esAdminPROLIMA() {
+      return estaAutenticado() &&
+             (request.auth.token.email.matches('.*@prolima[.]gob[.]pe') ||
+              request.auth.token.email == 'admin@patrimonio.pe');
+    }
+
+    // RN-05: El usuario solo puede manipular su propio perfil
+    match /usuarios/{idUsuario} {
+      allow read: if estaAutenticado();
+      allow write: if estaAutenticado() && request.auth.uid == idUsuario;
+    }
+
+    // Colección de reportes
+    match /reportes/{idReporte} {
+      allow read: if estaAutenticado();
+
+      // RN-01 y RN-04: Todo reporte debe tener severidad válida y nacer en ENVIADO
+      allow create: if estaAutenticado() &&
+                       request.resource.data.idUsuario == request.auth.uid &&
+                       request.resource.data.estado == "ENVIADO" &&
+                       request.resource.data.severidad in ["LEVE", "MODERADO", "SEVERO"];
+
+      // RN-03: Solo un usuario administrador puede actualizar el estado
+      allow update: if esAdminPROLIMA() ||
+                       (estaAutenticado() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes_count']));
+
+      allow delete: if esAdminPROLIMA();
+
+      // RN-02: Un usuario solo puede registrar 1 like por reporte
+      match /likes/{idUsuario} {
+        allow read: if estaAutenticado();
+        allow create, delete: if estaAutenticado() && request.auth.uid == idUsuario;
+      }
+    }
+
+    match /bienes_patrimoniales/{idBien} {
+      allow read: if estaAutenticado();
+      allow write: if esAdminPROLIMA();
+    }
+  }
+}

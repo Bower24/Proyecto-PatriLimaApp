@@ -101,7 +101,6 @@ fun PatrimonioLimaNavHost(
             val crearReporteViewModel: CrearReporteViewModel = viewModel()
             val estadoEnvio by crearReporteViewModel.estado.collectAsState()
 
-            // Opcional: Si quieres que regrese automáticamente al terminar con éxito
             LaunchedEffect(estadoEnvio) {
                 if (estadoEnvio is EnvioReporteEstado.Exito) {
                     crearReporteViewModel.reiniciarEstado()

@@ -8,13 +8,10 @@ import com.patrimonialima.app.domain.CalculadorZonasCriticas
 import com.patrimonialima.app.domain.ZonaCritica
 import com.patrimonialima.app.domain.model.BienPatrimonial
 import com.patrimonialima.app.domain.model.ReporteMapa
-import com.patrimonialima.app.domain.model.Severidad
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-
 
 class MapaViewModel(
     private val firestoreRepository: FirestoreRepository = FirestoreRepository()
@@ -45,7 +42,7 @@ class MapaViewModel(
 
                 val reportes = firestoreRepository.obtenerTodosLosReportes()
 
-                // Mapeo para los pines en el mapa
+                // Mapeo para los pines individuales
                 _reportesMapa.value = reportes
                     .filter { it.latitud != 0.0 && it.longitud != 0.0 }
                     .map { reporte ->
@@ -57,7 +54,7 @@ class MapaViewModel(
                         )
                     }
 
-                // Ejecución del Algoritmo A1 de agrupamiento y ranking
+                // Ejecución del Algoritmo A1 determinístico
                 _zonasCriticas.value = CalculadorZonasCriticas.calcular(
                     reportes = reportes,
                     radioMetros = 100.0,
