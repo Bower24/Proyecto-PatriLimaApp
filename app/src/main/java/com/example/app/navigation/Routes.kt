@@ -8,4 +8,7 @@ sealed class Routes(val route: String) {
     object Mapa : Routes("mapa")
 
     object Admin : Routes("admin")
+
+    object Comunidad : Routes("ver comunidad")
+
 }
