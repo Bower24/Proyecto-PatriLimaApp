@@ -23,6 +23,7 @@ import com.patrimonialima.app.ui.screens.reporte.CrearReporteViewModel
 import androidx.compose.ui.platform.LocalContext
 import com.patrimonialima.app.ui.screens.admin.AdminScreen
 import com.patrimonialima.app.ui.screens.reporte.EnvioReporteEstado
+import com.patrimonialima.app.ui.screens.reportes.ExplorarReportesScreen
 
 /**
  * Grafo de navegación de la aplicación. "login" es el punto de partida;
@@ -64,11 +65,12 @@ fun PatrimonioLimaNavHost(
             val estado by viewModel.uiState.collectAsState()
 
             HomeScreen(
-                nombreUsuario = estado.nombreUsuario,
-                contribucion = estado.contribucion,
+                //nombreUsuario = estado.nombreUsuario,
+                //contribucion = estado.contribucion,
                 onNuevoReporte = { navController.navigate(Routes.CrearReporte.route) },
                 onVerHistorial = { navController.navigate(Routes.Historial.route) },
                 onVerMapa = { navController.navigate(Routes.Mapa.route) },
+                onVerComunidad = { navController.navigate(Routes.Comunidad.route)}, // <-- NUEVO
                 onIrAAdmin = { navController.navigate(Routes.Admin.route) },
                 onCerrarSesion = {
                     viewModel.cerrarSesion()
@@ -85,6 +87,12 @@ fun PatrimonioLimaNavHost(
 
             HistorialReportesScreen(
                 reportes = reportes,
+                onVolver = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.Comunidad.route) {
+            ExplorarReportesScreen(
                 onVolver = { navController.popBackStack() }
             )
         }
