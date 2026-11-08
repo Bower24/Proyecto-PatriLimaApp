@@ -65,12 +65,12 @@ fun PatrimonioLimaNavHost(
             val estado by viewModel.uiState.collectAsState()
 
             HomeScreen(
-                //nombreUsuario = estado.nombreUsuario,
-                //contribucion = estado.contribucion,
+                nombreUsuario = estado.nombreUsuario,
+                contribucion = estado.contribucion,
                 onNuevoReporte = { navController.navigate(Routes.CrearReporte.route) },
                 onVerHistorial = { navController.navigate(Routes.Historial.route) },
                 onVerMapa = { navController.navigate(Routes.Mapa.route) },
-                onVerComunidad = { navController.navigate(Routes.Comunidad.route)}, // <-- NUEVO
+                onVerComunidad = { navController.navigate(Routes.Comunidad.route) },
                 onIrAAdmin = { navController.navigate(Routes.Admin.route) },
                 onCerrarSesion = {
                     viewModel.cerrarSesion()
@@ -98,27 +98,31 @@ fun PatrimonioLimaNavHost(
         }
 
         composable(Routes.CrearReporte.route) {
-            val crearReporteViewModel: CrearReporteViewModel = viewModel()
-            val estadoEnvio by crearReporteViewModel.estado.collectAsState()
+            val viewModel: CrearReporteViewModel = viewModel()
+
+            val estadoEnvio by viewModel.estado.collectAsState()
 
             LaunchedEffect(estadoEnvio) {
                 if (estadoEnvio is EnvioReporteEstado.Exito) {
-                    crearReporteViewModel.reiniciarEstado()
+                    viewModel.reiniciarEstado()
                     navController.popBackStack()
                 }
             }
 
             CrearReporteScreen(
-                onVolver = { navController.popBackStack() },
+                onVolver = {
+                    navController.popBackStack()
+                },
                 onEnviarReporte = { direccion, descripcion, severidad, imagenBase64 ->
-                    crearReporteViewModel.enviarReporte(
+                    viewModel.enviarReporte(
                         descripcion = descripcion,
                         severidad = severidad,
                         direccion = direccion,
                         fotoBase64 = imagenBase64
                     )
-                    true
-                }
+                },
+                enviando = estadoEnvio is EnvioReporteEstado.Enviando,
+                mensajeError = (estadoEnvio as? EnvioReporteEstado.Error)?.mensaje
             )
         }
 

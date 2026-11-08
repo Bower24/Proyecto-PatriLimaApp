@@ -7,6 +7,7 @@ import com.patrimonialima.app.data.repository.FirestoreRepository
 import com.patrimonialima.app.domain.CalculadorZonasCriticas
 import com.patrimonialima.app.domain.ZonaCritica
 import com.patrimonialima.app.domain.model.BienPatrimonial
+import com.patrimonialima.app.domain.model.EstadoReporte
 import com.patrimonialima.app.domain.model.ReporteMapa
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,6 @@ class MapaViewModel(
     private val _reportesMapa = MutableStateFlow<List<ReporteMapa>>(emptyList())
     val reportesMapa: StateFlow<List<ReporteMapa>> = _reportesMapa.asStateFlow()
 
-    // Exposición de las zonas críticas calculadas mediante Algoritmo A1
     private val _zonasCriticas = MutableStateFlow<List<ZonaCritica>>(emptyList())
     val zonasCriticas: StateFlow<List<ZonaCritica>> = _zonasCriticas.asStateFlow()
 
@@ -40,26 +40,33 @@ class MapaViewModel(
             try {
                 _bienes.value = firestoreRepository.obtenerBienesPatrimoniales()
 
-                val reportes = firestoreRepository.obtenerTodosLosReportes()
+                val todosLosReportes = firestoreRepository.obtenerTodosLosReportes()
 
-                // Mapeo para los pines individuales
-                _reportesMapa.value = reportes
-                    .filter { it.latitud != 0.0 && it.longitud != 0.0 }
-                    .map { reporte ->
-                        ReporteMapa(
-                            id = reporte.id,
-                            posicion = LatLng(reporte.latitud, reporte.longitud),
-                            severidad = reporte.severidad,
-                            descripcion = reporte.descripcion
-                        )
-                    }
+                // FILTRO ESTRICTO: Solo reportes activos/pendientes de intervención
+                val reportesActivos = todosLosReportes.filter { reporte ->
+                    val tieneCoords = reporte.latitud != 0.0 && reporte.longitud != 0.0
+                    val estaPendiente = reporte.estado != EstadoReporte.REVISADO
+                    tieneCoords && estaPendiente
+                }
 
-                // Ejecución del Algoritmo A1 determinístico
+                // Pines individuales para el mapa (solo activos)
+                _reportesMapa.value = reportesActivos.map { reporte ->
+                    ReporteMapa(
+                        id = reporte.id,
+                        posicion = LatLng(reporte.latitud, reporte.longitud),
+                        severidad = reporte.severidad,
+                        descripcion = reporte.descripcion
+                    )
+                }
+
+                // Zonas críticas: solo sobre incidentes pendientes
                 _zonasCriticas.value = CalculadorZonasCriticas.calcular(
-                    reportes = reportes,
+                    reportes = reportesActivos,
                     radioMetros = 100.0,
                     topK = 5
                 )
+            } catch (e: Exception) {
+                android.util.Log.e("MapaViewModel", "Error cargando datos del mapa", e)
             } finally {
                 _cargando.value = false
             }

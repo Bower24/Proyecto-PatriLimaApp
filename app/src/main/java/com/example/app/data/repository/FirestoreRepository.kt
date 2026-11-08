@@ -1,39 +1,29 @@
 package com.patrimonialima.app.data.repository
 
-import com.google.firebase.Timestamp
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.GeoPoint
+import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.patrimonialima.app.domain.model.BienPatrimonial
 import com.patrimonialima.app.domain.model.EstadoReporte
 import com.patrimonialima.app.domain.model.Reporte
 import com.patrimonialima.app.domain.model.Severidad
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
+class FirestoreRepository {
 
-/**
- * Acceso a las colecciones "bienes_patrimoniales" y "reportes" de Cloud
- * Firestore, con el esquema definido en la sección 4.4 de la tesis.
- *
- * NOTA: la geolocalización real del reporte (a partir del GPS del
- * dispositivo o de geocodificar el texto de "dirección") no está
- * implementada todavía — por ahora se guarda un punto por defecto en el
- * centro del Cercado de Lima. Ver README para el detalle de este pendiente.
- */
-
-class FirestoreRepository(
-    private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
-) {
-    private val coleccionBienes = db.collection("bienes_patrimoniales")
-    private val coleccionReportes = db.collection("reportes")
-
-    private val formatoFecha = SimpleDateFormat("d 'de' MMMM 'de' yyyy", Locale("es", "PE"))
-
-    suspend fun obtenerBienesPatrimoniales(): List<BienPatrimonial> {
-        val snapshot = coleccionBienes.get().await()
-        return snapshot.documents.mapNotNull { it.toBien() }
+    private val db = FirebaseFirestore.getInstance().apply {
+        // Habilitar persistencia offline estándar compatible con cualquier versión del SDK
+        try {
+            val settings = FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(true)
+                .build()
+            firestoreSettings = settings
+        } catch (_: Exception) {
+            // Ya inicializado previamente
+        }
     }
 
     suspend fun crearReporte(
@@ -41,110 +31,222 @@ class FirestoreRepository(
         descripcion: String,
         direccion: String,
         severidad: Severidad,
-        fotoBase64: String?, // Cadena Base64 de la imagen comprimida
-        idBien: String? = null,
-        latitud: Double = -12.0555,
-        longitud: Double = -77.0350
-    ): Result<String> {
+        fotoBase64: String? = null,
+        latitud: Double = -12.0465,
+        longitud: Double = -77.0305
+    ): Result<Unit> {
         return try {
-            val datos = hashMapOf(
-                "id_usuario" to idUsuario,
-                "id_bien" to idBien,
+            val fechaActual = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale("es", "PE")).format(Date())
+            val nuevoId = UUID.randomUUID().toString()
+            val reporteRef = db.collection("reportes").document(nuevoId)
+
+            val data = hashMapOf(
+                "id" to nuevoId,
+                "idUsuario" to idUsuario,
                 "descripcion" to descripcion,
                 "direccion" to direccion,
-                "ubicacion" to GeoPoint(latitud, longitud),
-                "foto_url" to (fotoBase64 ?: ""), // Guardado directo del Base64
-                "severidad" to severidad.name.lowercase(),
-                "estado" to EstadoReporte.ENVIADO.name.lowercase(),
-                "likes_count" to 0,
-                "fecha_creacion" to Timestamp.now()
+                "severidad" to severidad.name,
+                "estado" to EstadoReporte.ENVIADO.name,
+                "fecha" to fechaActual,
+                "fechaCreacionMillis" to System.currentTimeMillis(),
+                "likes_count" to 0L,
+                "latitud" to latitud,
+                "longitud" to longitud,
+                "fotoBase64" to fotoBase64
             )
-            val referencia = coleccionReportes.add(datos).await()
-            Result.success(referencia.id)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
 
-    suspend fun obtenerReportesDeUsuario(idUsuario: String): List<Reporte> {
-        val snapshot = coleccionReportes
-            .whereEqualTo("id_usuario", idUsuario)
-            .get()
-            .await()
-        return snapshot.documents.mapNotNull { it.toReporte() }
-    }
+            // Se envía a la caché local de inmediato. Sin internet, queda en cola y se sube sola al reconectar
+            reporteRef.set(data)
 
-    /** Usado por el mapa (RF03) y, más adelante, por el panel administrativo (RF05). */
-    suspend fun obtenerTodosLosReportes(): List<Reporte> {
-        val snapshot = coleccionReportes.get().await()
-        return snapshot.documents.mapNotNull { it.toReporte() }
-    }
-
-    suspend fun actualizarEstadoReporte(idReporte: String, nuevoEstado: EstadoReporte): Result<Unit> {
-        return try {
-            coleccionReportes.document(idReporte)
-                .update("estado", nuevoEstado.name.lowercase())
-                .await()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    private fun DocumentSnapshot.toBien(): BienPatrimonial? {
-        val nombre = getString("nombre") ?: return null
-        val geo = getGeoPoint("ubicacion")
-        return BienPatrimonial(
-            id = id,
-            nombre = nombre,
-            tipo = getString("tipo") ?: "",
-            distrito = getString("distrito") ?: "",
-            latitud = geo?.latitude ?: 0.0,
-            longitud = geo?.longitude ?: 0.0,
-            descripcion = getString("descripcion") ?: "",
-            anio = getString("anio") ?: "",
-            normaLegal = getString("norma_legal") ?: ""
-        )
-    }
-
-    private fun DocumentSnapshot.toReporte(): Reporte? {
+    suspend fun obtenerTodosLosReportes(): List<Reporte> {
         return try {
-            val descripcion = getString("descripcion") ?: getString("titulo") ?: "Sin descripción"
+            val snapshot = db.collection("reportes").get().await()
+            snapshot.documents.mapNotNull { doc ->
+                try {
+                    val severidadStr = doc.getString("severidad")?.uppercase().orEmpty()
+                    val estadoStr = doc.getString("estado")?.uppercase().orEmpty()
 
-            // Soporta tanto GeoPoint como campos dobles directos
-            val geo = getGeoPoint("ubicacion")
-            val lat = geo?.latitude ?: getDouble("latitud") ?: 0.0
-            val lng = geo?.longitude ?: getDouble("longitud") ?: 0.0
+                    val severidadEnum = when {
+                        severidadStr.contains("SEVERO") -> Severidad.SEVERO
+                        severidadStr.contains("MODERADO") -> Severidad.MODERADO
+                        else -> Severidad.LEVE
+                    }
 
-            val severidadTexto = getString("severidad") ?: "leve"
-            val estadoTexto = getString("estado") ?: "enviado"
-            val timestamp = getTimestamp("fecha_creacion")
+                    val estadoEnum = when {
+                        estadoStr.contains("REVISION") -> EstadoReporte.EN_REVISION
+                        estadoStr.contains("REVISADO") || estadoStr.contains("ATENDIDO") -> EstadoReporte.REVISADO
+                        else -> EstadoReporte.ENVIADO
+                    }
 
-            val severidad = Severidad.values()
-                .find { it.name.equals(severidadTexto, ignoreCase = true) } ?: Severidad.LEVE
+                    val likes = when (val l = doc.get("likes_count") ?: doc.get("likes")) {
+                        is Number -> l.toInt()
+                        is String -> l.toIntOrNull() ?: 0
+                        else -> 0
+                    }
 
-            val estado = EstadoReporte.values()
-                .find { it.name.equals(estadoTexto, ignoreCase = true) } ?: EstadoReporte.ENVIADO
-
-            Reporte(
-                id = id,
-                idUsuario = getString("id_usuario") ?: "",
-                idBien = getString("id_bien"),
-                titulo = descripcion.take(60),
-                descripcion = descripcion,
-                direccion = getString("direccion") ?: "Sin dirección",
-                fecha = timestamp?.toDate()?.let { formatoFecha.format(it) } ?: getString("fecha") ?: "",
-                severidad = severidad,
-                estado = estado,
-                likes = (getLong("likes_count") ?: getLong("likes") ?: 0L).toInt(),
-                latitud = lat,
-                longitud = lng,
-                fotoUrl = getString("foto_url"),
-                fechaCreacionMillis = timestamp?.toDate()?.time ?: 0L
-            )
+                    Reporte(
+                        id = doc.id,
+                        idUsuario = doc.getString("idUsuario").orEmpty(),
+                        idBien = doc.getString("idBien"),
+                        titulo = doc.getString("titulo").orEmpty(),
+                        descripcion = doc.getString("descripcion").orEmpty(),
+                        direccion = doc.getString("direccion").orEmpty(),
+                        latitud = doc.getDouble("latitud") ?: 0.0,
+                        longitud = doc.getDouble("longitud") ?: 0.0,
+                        fecha = doc.getString("fecha").orEmpty(),
+                        fechaCreacionMillis = doc.getLong("fechaCreacionMillis") ?: 0L,
+                        severidad = severidadEnum,
+                        estado = estadoEnum,
+                        likes = likes,
+                        fotoUrl = doc.getString("fotoBase64")
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            emptyList()
         }
     }
+
+    suspend fun obtenerBienesPatrimoniales(): List<BienPatrimonial> {
+        return try {
+            val snapshot = db.collection("bienes_patrimoniales").get().await()
+            snapshot.documents.mapNotNull { doc ->
+                try {
+                    BienPatrimonial(
+                        id = doc.id,
+                        nombre = doc.getString("nombre").orEmpty(),
+                        tipo = doc.getString("tipo").orEmpty(),
+                        distrito = doc.getString("distrito") ?: "Cercado de Lima",
+                        latitud = doc.getDouble("latitud") ?: 0.0,
+                        longitud = doc.getDouble("longitud") ?: 0.0,
+                        descripcion = doc.getString("descripcion").orEmpty(),
+                        anio = doc.getString("anio").orEmpty(),
+                        normaLegal = doc.getString("normaLegal").orEmpty()
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun obtenerReportesDeUsuario(uid: String): List<Reporte> {
+        return try {
+            val coleccion = db.collection("reportes")
+
+
+            val consultas = listOf(
+                coleccion.whereEqualTo("idUsuario", uid).get(),
+                coleccion.whereEqualTo("id_usuario", uid).get(),
+                coleccion.whereEqualTo("userId", uid).get()
+            )
+
+            val documentos = consultas.map { it.await() }
+                .flatMap { it.documents }
+                .distinctBy { it.id }
+
+            documentos.mapNotNull { doc ->
+                try {
+                    val severidadStr = (
+                            doc.getString("severidad") ?: "LEVE"
+                            ).uppercase()
+
+                    val estadoStr = (
+                            doc.getString("estado") ?: "ENVIADO"
+                            ).uppercase()
+
+                    val severidadEnum = when {
+                        severidadStr.contains("SEVERO") ->
+                            Severidad.SEVERO
+
+                        severidadStr.contains("MODERADO") ->
+                            Severidad.MODERADO
+
+                        else -> Severidad.LEVE
+                    }
+
+                    val estadoEnum = when {
+                        estadoStr.contains("REVISION") ->
+                            EstadoReporte.EN_REVISION
+
+                        estadoStr.contains("REVISADO") ||
+                                estadoStr.contains("ATENDIDO") ->
+                            EstadoReporte.REVISADO
+
+                        else -> EstadoReporte.ENVIADO
+                    }
+
+                    val likes = when (
+                        val valor = doc.get("likes_count") ?: doc.get("likes")
+                    ) {
+                        is Number -> valor.toInt()
+                        is String -> valor.toIntOrNull() ?: 0
+                        else -> 0
+                    }
+
+                    Reporte(
+                        id = doc.id,
+                        idUsuario = doc.getString("idUsuario")
+                            ?: doc.getString("id_usuario")
+                            ?: doc.getString("userId")
+                            ?: uid,
+
+                        idBien = doc.getString("idBien")
+                            ?: doc.getString("id_bien"),
+
+                        titulo = doc.getString("titulo").orEmpty(),
+                        descripcion = doc.getString("descripcion").orEmpty(),
+                        direccion = doc.getString("direccion").orEmpty(),
+
+                        latitud = doc.getDouble("latitud")
+                            ?: (doc.getGeoPoint("ubicacion")?.latitude ?: 0.0),
+
+                        longitud = doc.getDouble("longitud")
+                            ?: (doc.getGeoPoint("ubicacion")?.longitude ?: 0.0),
+
+                        fecha = doc.getString("fecha")
+                            ?: doc.getTimestamp("fecha_creacion")?.toDate()?.toString()
+                            ?: "",
+
+                        fechaCreacionMillis = doc.getLong("fechaCreacionMillis")
+                            ?: doc.getTimestamp("fecha_creacion")?.toDate()?.time
+                            ?: 0L,
+
+                        severidad = severidadEnum,
+                        estado = estadoEnum,
+                        likes = likes,
+
+                        fotoUrl = doc.getString("fotoBase64")
+                            ?: doc.getString("foto_url")
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e(
+                        "FirestoreRepository",
+                        "Error procesando reporte ${doc.id}",
+                        e
+                    )
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "FirestoreRepository",
+                "Error obteniendo reportes del usuario",
+                e
+            )
+            emptyList()
+        }
+    }
+
+
 }

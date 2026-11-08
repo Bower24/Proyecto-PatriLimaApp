@@ -1,6 +1,8 @@
 package com.patrimonialima.app.domain
 
+import com.patrimonialima.app.domain.model.EstadoReporte
 import com.patrimonialima.app.domain.model.Reporte
+import com.patrimonialima.app.domain.model.Severidad
 import kotlin.math.*
 
 data class ZonaCritica(
@@ -15,7 +17,7 @@ data class ZonaCritica(
 object CalculadorZonasCriticas {
 
     private fun obtenerPeso(reporte: Reporte): Int {
-        val texto = reporte.severidad.toString().uppercase()
+        val texto = reporte.severidad.name.uppercase()
         return when {
             texto.contains("SEVERO") -> 3
             texto.contains("MODERADO") -> 2
@@ -29,10 +31,18 @@ object CalculadorZonasCriticas {
         radioMetros: Double = 100.0,
         topK: Int = 5
     ): List<ZonaCritica> {
-        val reportesValidos = reportes.filter { it.latitud != 0.0 && it.longitud != 0.0 }
+        // FILTRADO ESTRICTO:
+        // 1. Coordenadas reales distintas de 0.0
+        // 2. Exclusión de reportes ya revisados (solo entran ENVIADO y EN_REVISION)
+        val reportesValidos = reportes.filter { reporte ->
+            val tieneCoordenadas = reporte.latitud != 0.0 && reporte.longitud != 0.0
+            val estaPendiente = reporte.estado == EstadoReporte.ENVIADO || reporte.estado == EstadoReporte.EN_REVISION
+            tieneCoordenadas && estaPendiente
+        }
 
-        // Ordenamiento determinístico: primero los más severos y luego id
+        if (reportesValidos.isEmpty()) return emptyList()
 
+        // Ordenamiento determinístico: primero mayor severidad y desempate por id
         val ordenados = reportesValidos.sortedWith(
             compareByDescending<Reporte> { obtenerPeso(it) }
                 .thenBy { it.id }
@@ -62,7 +72,7 @@ object CalculadorZonasCriticas {
                 }
             }
 
-            // Regla: mínimo 2 reportes para constituir una Zona Crítica visible
+            // Regla A1: Requiere un clúster mínimo de 2 reportes para proyectar una Zona Crítica
             if (clusterActual.size >= 2) {
                 val latC = clusterActual.map { it.latitud }.average()
                 val lonC = clusterActual.map { it.longitud }.average()
@@ -83,7 +93,6 @@ object CalculadorZonasCriticas {
             }
         }
 
-        // Retorna ordenado por mayor criticidad acumulada limitado a topK
         return zonasCriticas.sortedByDescending { it.criticidadAcumulada }.take(topK)
     }
 
