@@ -11,9 +11,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+data class ContribucionUsuario(
+    val enviados: Int = 0,
+    val enRevision: Int = 0,
+    val revisados: Int = 0,
+    val likes: Int = 0
+)
+
 data class HomeUiState(
     val nombreUsuario: String = "Usuario",
-    val contribucion: ContribucionUsuario = ContribucionUsuario(0, 0, 0)
+    val contribucion: ContribucionUsuario = ContribucionUsuario()
 )
 
 class HomeViewModel(
@@ -29,7 +36,7 @@ class HomeViewModel(
         cargarDatosUsuario()
     }
 
-    private fun cargarDatosUsuario() {
+    fun cargarDatosUsuario() {
         val uid = authRepository.uidActual ?: return
         viewModelScope.launch {
             val nombre = auth.currentUser?.displayName?.takeIf { it.isNotBlank() }
@@ -37,13 +44,24 @@ class HomeViewModel(
                 ?: "Usuario"
 
             val reportes = firestoreRepository.obtenerReportesDeUsuario(uid)
-            val enviados = reportes.size
+
+            // Si "Enviados" son todos los creados históricamente por el usuario:
+            val totalCreados = reportes.size
+            // Si prefieres estrictamente los que están en estado ENVIADO:
+            // val totalEnviados = reportes.count { it.estado == EstadoReporte.ENVIADO }
+
             val enRevision = reportes.count { it.estado == EstadoReporte.EN_REVISION }
+            val revisados = reportes.count { it.estado == EstadoReporte.REVISADO }
             val likes = reportes.sumOf { it.likes }
 
             _uiState.value = HomeUiState(
                 nombreUsuario = nombre,
-                contribucion = ContribucionUsuario(enviados, enRevision, likes)
+                contribucion = ContribucionUsuario(
+                    enviados = totalCreados,
+                    enRevision = enRevision,
+                    revisados = revisados,
+                    likes = likes
+                )
             )
         }
     }

@@ -28,16 +28,36 @@ class AuthRepository(
         }
     }
 
+    suspend fun esUsuarioAdministrador(): Boolean {
+        val uid = uidActual ?: return false
+        val usuario = FirebaseAuth.getInstance().currentUser
+
+        // Requiere correo verificado y existencia en la colección /administradores
+        if (usuario?.isEmailVerified != true) return false
+
+        return try {
+            val doc = FirebaseFirestore.getInstance()
+                .collection("administradores")
+                .document(uid)
+                .get()
+                .await()
+            doc.exists()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     suspend fun registrar(nombre: String, correo: String, contrasena: String): Result<String> {
         val correoSanitizado = correo.trim().lowercase()
 
         // NUEVO : Restricción de seguridad: Los correos institucionales de PROLIMA no pueden auto-registrarse
-        if (correoSanitizado.endsWith("@prolima.gob.pe") || correoSanitizado.endsWith("@patrimonio.pe")) {
+/*
+            if (correoSanitizado.endsWith("@prolima.gob.pe") || correoSanitizado.endsWith("@patrimonio.pe")) {
             return Result.failure(
                 IllegalArgumentException("Los correos institucionales de PROLIMA son asignados internamente y no admiten registro público.")
             )
         }
-
+*/
         return try {
             val resultado = auth.createUserWithEmailAndPassword(correoSanitizado, contrasena).await()
             val uid = resultado.user?.uid

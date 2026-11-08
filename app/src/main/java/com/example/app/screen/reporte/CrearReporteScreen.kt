@@ -26,8 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddAPhoto
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -70,7 +71,14 @@ import java.io.ByteArrayOutputStream
 @Composable
 fun CrearReporteScreen(
     onVolver: () -> Unit,
-    onEnviarReporte: suspend (direccion: String, descripcion: String, severidad: Severidad, imagenBase64: String?) -> Boolean
+    onEnviarReporte: (
+        direccion: String,
+        descripcion: String,
+        severidad: Severidad,
+        imagenBase64: String?
+    ) -> Unit,
+    enviando: Boolean = false,
+    mensajeError: String? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,25 +91,25 @@ fun CrearReporteScreen(
     var bitmapActual by remember { mutableStateOf<Bitmap?>(null) }
     var imagenBase64 by remember { mutableStateOf<String?>(null) }
     var mostrarDialogoOrigen by remember { mutableStateOf(false) }
-    var enviando by remember { mutableStateOf(false) }
 
-    // Función auxiliar para comprimir a Base64 sin sobrecargar Firestore (< 1MB)
+    // Compresión segura de imagen a Base64 sin romper la memoria
     fun procesarBitmap(bitmapOriginal: Bitmap) {
-        val maxDim = 800
-        val ratio = minOf(maxDim.toFloat() / bitmapOriginal.width, maxDim.toFloat() / bitmapOriginal.height, 1.0f)
-        val nuevoAncho = (bitmapOriginal.width * ratio).toInt()
-        val nuevoAlto = (bitmapOriginal.height * ratio).toInt()
+        try {
+            val maxDim = 800
+            val ratio = minOf(maxDim.toFloat() / bitmapOriginal.width, maxDim.toFloat() / bitmapOriginal.height, 1.0f)
+            val nuevoAncho = (bitmapOriginal.width * ratio).toInt()
+            val nuevoAlto = (bitmapOriginal.height * ratio).toInt()
 
-        val escalado = Bitmap.createScaledBitmap(bitmapOriginal, nuevoAncho, nuevoAlto, true)
-        val stream = ByteArrayOutputStream()
-        escalado.compress(Bitmap.CompressFormat.JPEG, 75, stream)
-        val bytes = stream.toByteArray()
+            val escalado = Bitmap.createScaledBitmap(bitmapOriginal, nuevoAncho, nuevoAlto, true)
+            val stream = ByteArrayOutputStream()
+            escalado.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+            val bytes = stream.toByteArray()
 
-        bitmapActual = escalado
-        imagenBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            bitmapActual = escalado
+            imagenBase64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } catch (_: Exception) {}
     }
 
-    // 1. Selector de Galería
     val launcherGaleria = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -121,7 +129,6 @@ fun CrearReporteScreen(
         }
     }
 
-    // 2. Launcher de Cámara nativa (Toma directa de foto)
     val launcherCamara = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bmp: Bitmap? ->
@@ -136,12 +143,16 @@ fun CrearReporteScreen(
                 title = { Text("Registrar Daño Patrimonial", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onVolver) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = androidx.compose.ui.graphics.Color.White)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = Color.White
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = BluePrimary,
-                    titleContentColor = androidx.compose.ui.graphics.Color.White
+                    titleContentColor = Color.White
                 )
             )
         }
@@ -181,25 +192,28 @@ fun CrearReporteScreen(
                     Button(
                         onClick = { severidadSeleccionada = s },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (seleccionado) BluePrimary else androidx.compose.ui.graphics.Color.LightGray
+                            containerColor = if (seleccionado) BluePrimary else Color.LightGray
                         ),
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(s.label, fontSize = 11.sp, color = if (seleccionado) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.DarkGray)
+                        Text(
+                            text = s.label,
+                            fontSize = 11.sp,
+                            color = if (seleccionado) Color.White else Color.DarkGray
+                        )
                     }
                 }
             }
 
             Text("Fotografía de evidencia", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
 
-            // Contenedor de la foto / Botón de captura
             if (bitmapActual != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, androidx.compose.ui.graphics.Color.Gray, RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Gray, RoundedCornerShape(12.dp))
                 ) {
                     Image(
                         bitmap = bitmapActual!!.asImageBitmap(),
@@ -215,9 +229,9 @@ fun CrearReporteScreen(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(6.dp)
-                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Eliminar foto", tint = androidx.compose.ui.graphics.Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Eliminar foto", tint = Color.White)
                     }
                 }
             } else {
@@ -226,15 +240,20 @@ fun CrearReporteScreen(
                         .fillMaxWidth()
                         .height(130.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(androidx.compose.ui.graphics.Color(0xFFF1F1F1))
-                        .border(1.dp, androidx.compose.ui.graphics.Color(0xFFCCCCCC), RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF1F1F1))
+                        .border(1.dp, Color(0xFFCCCCCC), RoundedCornerShape(12.dp))
                         .clickable { mostrarDialogoOrigen = true },
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.AddAPhoto, contentDescription = "Adjuntar foto", tint = BluePrimary, modifier = Modifier.size(36.dp))
+                        Icon(
+                            imageVector = Icons.Default.AddAPhoto,
+                            contentDescription = "Adjuntar foto",
+                            tint = BluePrimary,
+                            modifier = Modifier.size(36.dp)
+                        )
                         Spacer(Modifier.height(6.dp))
-                        Text("Adjuntar foto (Cámara o Galería)", fontSize = 12.sp, color = androidx.compose.ui.graphics.Color.DarkGray)
+                        Text("Adjuntar foto (Cámara o Galería)", fontSize = 12.sp, color = Color.DarkGray)
                     }
                 }
             }
@@ -243,31 +262,45 @@ fun CrearReporteScreen(
 
             Button(
                 onClick = {
-                    if (direccion.isNotBlank() && descripcion.isNotBlank() && !enviando) {
-                        enviando = true
-                        scope.launch {
-                            val res = onEnviarReporte(direccion, descripcion, severidadSeleccionada, imagenBase64)
-                            enviando = false
-                            if (res) onVolver()
-                        }
+                    if (
+                        direccion.isNotBlank() &&
+                        descripcion.isNotBlank() &&
+                        !enviando
+                    ) {
+                        onEnviarReporte(
+                            direccion,
+                            descripcion,
+                            severidadSeleccionada,
+                            imagenBase64
+                        )
                     }
                 },
-                enabled = !enviando && direccion.isNotBlank() && descripcion.isNotBlank(),
+                enabled = !enviando &&
+                        direccion.isNotBlank() &&
+                        descripcion.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BluePrimary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = BluePrimary
+                )
             ) {
                 if (enviando) {
-                    CircularProgressIndicator(color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(24.dp))
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
                 } else {
-                    Text("Enviar Reporte Ciudadano", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Enviar Reporte Ciudadano",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
+
             }
         }
     }
 
-    // Diálogo modal para elegir Cámara o Galería
     if (mostrarDialogoOrigen) {
         AlertDialog(
             onDismissRequest = { mostrarDialogoOrigen = false },

@@ -40,10 +40,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,9 +58,8 @@ import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
 
 data class ReporteComunidad(
     val id: String = "",
@@ -77,79 +77,123 @@ data class ReporteComunidad(
 fun ExplorarReportesScreen(onVolver: () -> Unit) {
     val uidActual = remember { FirebaseAuth.getInstance().currentUser?.uid.orEmpty() }
     val db = remember { FirebaseFirestore.getInstance() }
+    val coroutineScope = rememberCoroutineScope()
+
     var reportes by remember { mutableStateOf<List<ReporteComunidad>>(emptyList()) }
     var cargando by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            try {
-                val snapshot = db.collection("reportes").get().await()
-                val lista = mutableListOf<ReporteComunidad>()
+    // Sincronización en tiempo real con verificación de likes persistentes
+    DisposableEffect(uidActual) {
+        val listener = db.collection("reportes")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    cargando = false
+                    return@addSnapshotListener
+                }
 
-                for (doc in snapshot.documents) {
-                    val repId = doc.id
+                coroutineScope.launch {
+                    val lista = mutableListOf<ReporteComunidad>()
 
-                    // Lectura segura del conteo de likes (evita ClassCastException)
-                    val likes = when (val l = doc.get("likes_count") ?: doc.get("likes")) {
-                        is Number -> l.toLong()
-                        is String -> l.toLongOrNull() ?: 0L
-                        else -> 0L
-                    }
+                    for (doc in snapshot.documents) {
+                        val repId = doc.id
+                        val likes = when (val l = doc.get("likes_count") ?: doc.get("likes")) {
+                            is Number -> l.toLong()
+                            is String -> l.toLongOrNull() ?: 0L
+                            else -> 0L
+                        }
 
-                    var userLike = false
-                    if (uidActual.isNotEmpty()) {
-                        try {
-                            val likeDoc = db.collection("reportes").document(repId)
-                                .collection("likes").document(uidActual).get().await()
-                            userLike = likeDoc.exists()
-                        } catch (_: Exception) {}
-                    }
+                        // Comprobar si el usuario actual dio like revisando su subcolección
+                        var yaDioLike = false
+                        if (uidActual.isNotBlank()) {
+                            try {
+                                val likeDoc = db.collection("reportes")
+                                    .document(repId)
+                                    .collection("likes")
+                                    .document(uidActual)
+                                    .get()
+                                    .await()
+                                yaDioLike = likeDoc.exists()
+                            } catch (_: Exception) {}
+                        }
 
-                    lista.add(
-                        ReporteComunidad(
-                            id = repId,
-                            direccion = doc.getString("direccion") ?: "Centro Histórico de Lima",
-                            descripcion = doc.getString("descripcion") ?: "",
-                            severidad = doc.getString("severidad") ?: "LEVE",
-                            estado = doc.getString("estado") ?: "ENVIADO",
-                            fotoBase64 = doc.getString("fotoBase64"),
-                            likesCount = likes,
-                            dioLike = userLike
+                        lista.add(
+                            ReporteComunidad(
+                                id = repId,
+                                direccion = doc.getString("direccion") ?: "Centro Histórico de Lima",
+                                descripcion = doc.getString("descripcion") ?: "",
+                                severidad = doc.getString("severidad") ?: "LEVE",
+                                estado = doc.getString("estado") ?: "ENVIADO",
+                                fotoBase64 = doc.getString("fotoBase64"),
+                                likesCount = likes,
+                                dioLike = yaDioLike
+                            )
                         )
-                    )
-                }
-                withContext(Dispatchers.Main) {
+                    }
+
                     reportes = lista
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("ExplorarReportes", "Error cargando reportes", e)
-            } finally {
-                withContext(Dispatchers.Main) {
                     cargando = false
                 }
             }
+
+        onDispose {
+            listener.remove()
         }
     }
 
     fun toggleLike(reporte: ReporteComunidad) {
-        if (uidActual.isEmpty()) return
+        if (uidActual.isBlank()) return
+
+        val nuevoEstado = !reporte.dioLike
+        val delta = if (nuevoEstado) 1L else -1L
+        val nuevoConteo = (reporte.likesCount + delta).coerceAtLeast(0)
+
+        // Actualización optimista inmediata en la UI
+        reportes = reportes.map {
+            if (it.id == reporte.id) it.copy(dioLike = nuevoEstado, likesCount = nuevoConteo)
+            else it
+        }
 
         val reporteRef = db.collection("reportes").document(reporte.id)
         val likeRef = reporteRef.collection("likes").document(uidActual)
 
-        if (reporte.dioLike) {
-            likeRef.delete()
-            reporteRef.update("likes_count", FieldValue.increment(-1))
-            reportes = reportes.map {
-                if (it.id == reporte.id) it.copy(dioLike = false, likesCount = (it.likesCount - 1).coerceAtLeast(0))
-                else it
+        db.runTransaction { transaction ->
+            val likeSnapshot = transaction.get(likeRef)
+            val repSnapshot = transaction.get(reporteRef)
+
+            val conteoActual = when (val l = repSnapshot.get("likes_count") ?: repSnapshot.get("likes")) {
+                is Number -> l.toLong()
+                is String -> l.toLongOrNull() ?: 0L
+                else -> 0L
             }
-        } else {
-            likeRef.set(mapOf("fecha" to FieldValue.serverTimestamp()))
-            reporteRef.update("likes_count", FieldValue.increment(1))
+
+            if (likeSnapshot.exists()) {
+                transaction.delete(likeRef)
+                val finalCount = (conteoActual - 1).coerceAtLeast(0)
+                transaction.update(
+                    reporteRef,
+                    "likes_count",
+                    finalCount
+                )
+            } else {
+                transaction.set(
+                    likeRef,
+                    mapOf(
+                        "fecha" to FieldValue.serverTimestamp(),
+                        "uid" to uidActual
+                    )
+                )
+                val finalCount = conteoActual + 1
+                transaction.update(
+                    reporteRef,
+                    "likes_count",
+                    finalCount
+                )
+            }
+        }.addOnFailureListener { error ->
+            android.util.Log.e("Likes", "Error en transacción de like", error)
+            // Revertir estado si falla la red o las reglas de seguridad
             reportes = reportes.map {
-                if (it.id == reporte.id) it.copy(dioLike = true, likesCount = it.likesCount + 1)
-                else it
+                if (it.id == reporte.id) reporte else it
             }
         }
     }
@@ -196,7 +240,6 @@ fun ExplorarReportesScreen(onVolver: () -> Unit) {
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            // Decodificación segura de imagen en segundo plano
                             item.fotoBase64?.let { base64Str ->
                                 val bitmap = remember(base64Str) { decodificarBase64Seguro(base64Str) }
                                 bitmap?.let {
@@ -218,10 +261,26 @@ fun ExplorarReportesScreen(onVolver: () -> Unit) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(item.direccion, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
+                                Text(
+                                    text = item.direccion,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = Color(0xFF1E293B),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(end = 8.dp)
+                                )
                                 AssistChip(
                                     onClick = {},
-                                    label = { Text(item.severidad, fontSize = 10.sp, fontWeight = FontWeight.Bold) },
+                                    label = {
+                                        Text(
+                                            text = item.severidad.uppercase(),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    },
                                     colors = AssistChipDefaults.assistChipColors(
                                         containerColor = if (item.severidad.equals("SEVERO", ignoreCase = true)) Color(0xFFFEE2E2) else Color(0xFFFEF3C7),
                                         labelColor = if (item.severidad.equals("SEVERO", ignoreCase = true)) Color(0xFFDC2626) else Color(0xFFD97706)
@@ -277,7 +336,6 @@ fun ExplorarReportesScreen(onVolver: () -> Unit) {
     }
 }
 
-// Función auxiliar con sanitización contra crasheos de memoria y formatos
 private fun decodificarBase64Seguro(base64String: String): Bitmap? {
     return try {
         val pureBase64 = if (base64String.contains(",")) {

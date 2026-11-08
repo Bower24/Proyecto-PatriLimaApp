@@ -63,6 +63,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import android.util.Log
 
 // Modelo simple para la vista administrativa
 data class ReporteAdminItem(
@@ -201,7 +202,7 @@ fun AdminScreen(
                         TarjetaReporteAdmin(
                             reporte = item,
                             onCambiarEstado = { nuevoEstado ->
-                                scope.launch(Dispatchers.IO) {
+                                scope.launch {
                                     try {
                                         FirebaseFirestore.getInstance()
                                             .collection("reportes")
@@ -209,13 +210,29 @@ fun AdminScreen(
                                             .update("estado", nuevoEstado.name)
                                             .await()
 
-                                        withContext(Dispatchers.Main) {
-                                            val index = listaReportes.indexOfFirst { it.id == item.id }
-                                            if (index != -1) {
-                                                listaReportes[index] = listaReportes[index].copy(estado = nuevoEstado)
-                                            }
+                                        val index = listaReportes.indexOfFirst {
+                                            it.id == item.id
                                         }
-                                    } catch (_: Exception) {}
+
+                                        if (index != -1) {
+                                            listaReportes[index] =
+                                                listaReportes[index].copy(
+                                                    estado = nuevoEstado
+                                                )
+                                        }
+
+                                        Log.d(
+                                            "AdminScreen",
+                                            "Estado actualizado correctamente: ${nuevoEstado.name}"
+                                        )
+
+                                    } catch (e: Exception) {
+                                        Log.e(
+                                            "AdminScreen",
+                                            "ERROR AL CAMBIAR ESTADO DEL REPORTE",
+                                            e
+                                        )
+                                    }
                                 }
                             }
                         )

@@ -17,7 +17,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +46,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.patrimonialima.app.domain.ZonaCritica
 import com.patrimonialima.app.domain.model.BienPatrimonial
 import com.patrimonialima.app.domain.model.ReporteMapa
-import com.patrimonialima.app.domain.model.Severidad
 import com.patrimonialima.app.ui.theme.AmberText
 import com.patrimonialima.app.ui.theme.BackgroundLight
 import com.patrimonialima.app.ui.theme.BluePrimary
@@ -82,10 +82,18 @@ fun MapaInteractivoScreen(
     var cargandoMapa by remember { mutableStateOf(true) }
     var errorMapa by remember { mutableStateOf<String?>(null) }
 
+    // Inicialización segura del motor Mapsforge
     LaunchedEffect(Unit) {
+        try {
+            AndroidGraphicFactory.createInstance(context.applicationContext as Application)
+        } catch (_: Exception) {
+            // Ya estaba instanciado previamente en la memoria de la app
+        }
+
         withContext(Dispatchers.IO) {
             try {
-                val nombreArchivo = if (context.assets.list("")?.contains("lima.map") == true) "lima.map" else "peru.map"
+                val listadoAssets = context.assets.list("").orEmpty()
+                val nombreArchivo = if (listadoAssets.contains("lima.map")) "lima.map" else "peru.map"
                 val destino = File(context.filesDir, nombreArchivo)
 
                 if (!destino.exists() || destino.length() == 0L) {
@@ -115,7 +123,11 @@ fun MapaInteractivoScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onVolver) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Volver", tint = Color.White)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Volver",
+                            tint = Color.White
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -157,7 +169,12 @@ fun MapaInteractivoScreen(
                     cargandoMapa -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(color = BluePrimary)
-                            Text("Cargando cartografía offline...", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.padding(top = 8.dp))
+                            Text(
+                                "Cargando cartografía offline...",
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
                         }
                     }
                     errorMapa != null -> {
@@ -248,45 +265,40 @@ private fun MapaMapsforgeNativo(
     filtro: String,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-
-    remember {
-        AndroidGraphicFactory.createInstance(
-            context.applicationContext as Application
-        )
-        true
-    }
-
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
+    // Manejo de capas reactivas
     LaunchedEffect(filtro, bienes, reportes, zonasCriticas, mapViewRef) {
         val mapView = mapViewRef ?: return@LaunchedEffect
-        val layerManager = mapView.layerManager
+        val layerManager = mapView.layerManager ?: return@LaunchedEffect
 
+        // Mantener únicamente la capa base de azulejos (índice 0)
         while (layerManager.layers.size() > 1) {
             layerManager.layers.remove(layerManager.layers.size() - 1)
         }
 
-        // 1. Zonas Críticas: Círculos translúcidos de 100m sobre el centroide exacto
+        // 1. Zonas Críticas: Círculos sobre centroides de incidentes no resueltos
         if (filtro == "Todos" || filtro == "Zonas críticas") {
             zonasCriticas.forEach { zona ->
-                val paintRelleno = AndroidGraphicFactory.INSTANCE.createPaint().apply {
-                    color = android.graphics.Color.argb(80, 244, 67, 54)
-                    setStyle(Style.FILL)
-                }
-                val paintBorde = AndroidGraphicFactory.INSTANCE.createPaint().apply {
-                    color = android.graphics.Color.rgb(211, 47, 47)
-                    strokeWidth = 3f
-                    setStyle(Style.STROKE)
-                }
+                if (!zona.centroideLat.isNaN() && !zona.centroideLon.isNaN()) {
+                    val paintRelleno = AndroidGraphicFactory.INSTANCE.createPaint().apply {
+                        color = android.graphics.Color.argb(80, 244, 67, 54)
+                        setStyle(Style.FILL)
+                    }
+                    val paintBorde = AndroidGraphicFactory.INSTANCE.createPaint().apply {
+                        color = android.graphics.Color.rgb(211, 47, 47)
+                        strokeWidth = 3f
+                        setStyle(Style.STROKE)
+                    }
 
-                val circle = Circle(
-                    LatLong(zona.centroideLat, zona.centroideLon),
-                    100f,
-                    paintRelleno,
-                    paintBorde
-                )
-                layerManager.layers.add(circle)
+                    val circle = Circle(
+                        LatLong(zona.centroideLat, zona.centroideLon),
+                        zona.radioMetros.toFloat(),
+                        paintRelleno,
+                        paintBorde
+                    )
+                    layerManager.layers.add(circle)
+                }
             }
         }
 
@@ -297,30 +309,41 @@ private fun MapaMapsforgeNativo(
                 setStyle(Style.FILL)
             }
             bienes.forEach { bien ->
-                val punto = Circle(LatLong(bien.latitud, bien.longitud), 10f, paintBien, null)
-                layerManager.layers.add(punto)
+                if (bien.latitud != 0.0 && bien.longitud != 0.0) {
+                    val punto = Circle(LatLong(bien.latitud, bien.longitud), 10f, paintBien, null)
+                    layerManager.layers.add(punto)
+                }
             }
         }
 
-        // 3. Reportes de daño (Puntos según severidad)
+        // 3. Reportes de daño activos (Puntos según severidad)
         if (filtro == "Todos" || filtro == "Reportes activos") {
             reportes.forEach { rep ->
-                val severidadStr = rep.severidad.toString().uppercase()
-                val colorArgb = when {
-                    severidadStr.contains("SEVERO") -> android.graphics.Color.rgb(244, 67, 54)
-                    severidadStr.contains("MODERADO") -> android.graphics.Color.rgb(255, 152, 0)
-                    else -> android.graphics.Color.rgb(76, 175, 80)
+                if (rep.posicion.latitude != 0.0 && rep.posicion.longitude != 0.0) {
+                    val severidadStr = rep.severidad.toString().uppercase()
+                    val colorArgb = when {
+                        severidadStr.contains("SEVERO") -> android.graphics.Color.rgb(244, 67, 54)
+                        severidadStr.contains("MODERADO") -> android.graphics.Color.rgb(255, 152, 0)
+                        else -> android.graphics.Color.rgb(76, 175, 80)
+                    }
+                    val paintRep = AndroidGraphicFactory.INSTANCE.createPaint().apply {
+                        color = colorArgb
+                        setStyle(Style.FILL)
+                    }
+                    val punto = Circle(LatLong(rep.posicion.latitude, rep.posicion.longitude), 12f, paintRep, null)
+                    layerManager.layers.add(punto)
                 }
-                val paintRep = AndroidGraphicFactory.INSTANCE.createPaint().apply {
-                    color = colorArgb
-                    setStyle(Style.FILL)
-                }
-                val punto = Circle(LatLong(rep.posicion.latitude, rep.posicion.longitude), 12f, paintRep, null)
-                layerManager.layers.add(punto)
             }
         }
 
         mapView.repaint()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mapViewRef?.destroyAll()
+            mapViewRef = null
+        }
     }
 
     AndroidView(

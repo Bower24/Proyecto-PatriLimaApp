@@ -56,7 +56,7 @@ class AlgoritmoA1Test {
         )
 
         assertEquals("Debe consolidar 1 sola zona crítica", 1, zonas.size)
-        // Severidad SEVERO (3) + MODERADO (2) = 5[cite: 1]
+        // Severidad SEVERO (3) + MODERADO (2) = 5
         assertEquals("La criticidad acumulada debe ser 5", 5, zonas[0].criticidadAcumulada)
         assertEquals("La zona crítica debe contener los 2 reportes", 2, zonas[0].reportes.size)
     }
@@ -80,7 +80,7 @@ class AlgoritmoA1Test {
             radioMetros = 100.0
         )
 
-        // Cumple la condición de no crear zonas críticas si N < 2[cite: 3]
+        // Cumple la condición de no crear zonas críticas si N < 2
         assertTrue("No debe proyectar zona crítica si N < 2", zonas.isEmpty())
     }
 
