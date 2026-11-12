@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.patrimonialima.app.ui.screens.admin.AdminScreen
 import com.patrimonialima.app.ui.screens.reporte.EnvioReporteEstado
 import com.patrimonialima.app.ui.screens.reportes.ExplorarReportesScreen
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Grafo de navegación de la aplicación. "login" es el punto de partida;
@@ -97,15 +98,34 @@ fun PatrimonioLimaNavHost(
             )
         }
 
-        composable(Routes.CrearReporte.route) {
-            val viewModel: CrearReporteViewModel = viewModel()
 
+        composable(Routes.CrearReporte.route) {
+
+            val context = LocalContext.current
+
+            val viewModel: CrearReporteViewModel = viewModel()
             val estadoEnvio by viewModel.estado.collectAsState()
 
             LaunchedEffect(estadoEnvio) {
-                if (estadoEnvio is EnvioReporteEstado.Exito) {
-                    viewModel.reiniciarEstado()
-                    navController.popBackStack()
+                when (estadoEnvio) {
+
+                    is EnvioReporteEstado.EnCola -> {
+                        viewModel.reiniciarEstado()
+
+                        navController.navigate(Routes.Home.route) {
+                            popUpTo(Routes.Home.route) {
+                                inclusive = false
+                            }
+                            launchSingleTop = true
+                        }
+                    }
+
+                    is EnvioReporteEstado.Exito -> {
+                        viewModel.reiniciarEstado()
+                        navController.popBackStack()
+                    }
+
+                    else -> Unit
                 }
             }
 
@@ -113,8 +133,14 @@ fun PatrimonioLimaNavHost(
                 onVolver = {
                     navController.popBackStack()
                 },
-                onEnviarReporte = { direccion, descripcion, severidad, imagenBase64 ->
+                onEnviarReporte = {
+                        direccion,
+                        descripcion,
+                        severidad,
+                        imagenBase64 ->
+
                     viewModel.enviarReporte(
+                        context = context,
                         descripcion = descripcion,
                         severidad = severidad,
                         direccion = direccion,
@@ -122,9 +148,11 @@ fun PatrimonioLimaNavHost(
                     )
                 },
                 enviando = estadoEnvio is EnvioReporteEstado.Enviando,
-                mensajeError = (estadoEnvio as? EnvioReporteEstado.Error)?.mensaje
+                mensajeError =
+                    (estadoEnvio as? EnvioReporteEstado.Error)?.mensaje
             )
         }
+
 
         composable(Routes.Mapa.route) {
             val mapaViewModel: MapaViewModel = viewModel()

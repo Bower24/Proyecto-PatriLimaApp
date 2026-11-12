@@ -11,6 +11,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import android.content.Context
+import android.util.Base64
+import com.patrimonialima.app.data.local.ReportesPendientesLocal
 
 class FirestoreRepository {
 
@@ -26,7 +29,10 @@ class FirestoreRepository {
         }
     }
 
-    suspend fun crearReporte(
+
+
+    fun crearReporte(
+        context: Context,
         idUsuario: String,
         descripcion: String,
         direccion: String,
@@ -34,9 +40,29 @@ class FirestoreRepository {
         fotoBase64: String? = null,
         latitud: Double = -12.0465,
         longitud: Double = -77.0305
-    ): Result<Unit> {
+    ): Result<String> {
+
+        var idRegistrado: String? = null
+
         return try {
-            val fechaActual = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale("es", "PE")).format(Date())
+            // Firestore admite como máximo 1 MiB por documento.
+            // Dejamos margen para los demás campos.
+            if (fotoBase64 != null &&
+                fotoBase64.toByteArray(Charsets.UTF_8).size > 750_000
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "La fotografía es demasiado grande. " +
+                                "Selecciona una imagen más pequeña."
+                    )
+                )
+            }
+
+            val fechaActual = SimpleDateFormat(
+                "dd 'de' MMMM 'de' yyyy",
+                Locale("es", "PE")
+            ).format(Date())
+
             val nuevoId = UUID.randomUUID().toString()
             val reporteRef = db.collection("reportes").document(nuevoId)
 
@@ -55,14 +81,56 @@ class FirestoreRepository {
                 "fotoBase64" to fotoBase64
             )
 
-            // Se envía a la caché local de inmediato. Sin internet, queda en cola y se sube sola al reconectar
-            reporteRef.set(data)
+            // Registrar primero el identificador pendiente.
+            val registrado = ReportesPendientesLocal.registrar(
+                context,
+                idUsuario,
+                nuevoId
+            )
 
-            Result.success(Unit)
+            if (!registrado) {
+                return Result.failure(
+                    IllegalStateException(
+                        "No se pudo registrar el reporte pendiente localmente."
+                    )
+                )
+            }
+
+            idRegistrado = nuevoId
+
+            // No usar await(): sin internet esperaría al servidor.
+            reporteRef.set(data)
+                .addOnFailureListener { error ->
+                    android.util.Log.e(
+                        "FirestoreRepository",
+                        "Error enviando reporte $nuevoId",
+                        error
+                    )
+
+                    // Se conserva el ID pendiente para poder
+                    // mostrar el error y revisar el reporte.
+                    ReportesPendientesLocal.registrarError(
+                        context,
+                        idUsuario,
+                        nuevoId
+                    )
+                }
+
+            Result.success(nuevoId)
+
         } catch (e: Exception) {
+            idRegistrado?.let { id ->
+                ReportesPendientesLocal.quitar(
+                    context,
+                    idUsuario,
+                    id
+                )
+            }
             Result.failure(e)
         }
     }
+
+
 
     suspend fun obtenerTodosLosReportes(): List<Reporte> {
         return try {

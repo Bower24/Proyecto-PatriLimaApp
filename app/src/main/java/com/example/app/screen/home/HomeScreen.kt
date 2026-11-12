@@ -80,6 +80,8 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.google.firebase.firestore.MetadataChanges
+import com.patrimonialima.app.data.local.ReportesPendientesLocal
 
 data class NotificacionAlerta(
     val id: String,
@@ -199,6 +201,45 @@ fun HomeScreen(
         }
     }
 
+    fun notificarSincronizacion(
+        idNotificacion: String,
+        mensaje: String
+    ) {
+        if (uid.isBlank()) return
+
+        // Evitar duplicados.
+        if (listaNotificaciones.any { it.id == idNotificacion }) {
+            return
+        }
+
+        val fechaHora = SimpleDateFormat(
+            "dd/MM/yyyy HH:mm",
+            Locale.getDefault()
+        ).format(Date())
+
+        listaNotificaciones.add(
+            0,
+            NotificacionAlerta(
+                id = idNotificacion,
+                mensaje = mensaje,
+                hora = fechaHora
+            )
+        )
+
+        guardarNotificaciones(
+            prefs = prefs,
+            uid = uid,
+            notificaciones = listaNotificaciones
+        )
+
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(
+                message = mensaje,
+                duration = SnackbarDuration.Long
+            )
+        }
+    }
+
     // Estados reactivos sincronizados
     var totalEnviados by remember(uid) { mutableIntStateOf(contribucion.enviados) }
     var totalEnRevision by remember(uid) { mutableIntStateOf(contribucion.enRevision) }
@@ -214,7 +255,7 @@ fun HomeScreen(
         // Escucha en tiempo real sobre la colección de reportes
 // Escucha en tiempo real sobre la colección de reportes
         val listener = db.collection("reportes")
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
 
                 if (error != null) {
                     Log.e("HomeScreen", "Error escuchando reportes", error)
@@ -235,8 +276,61 @@ fun HomeScreen(
                     userEnDoc == uid
                 }
 
+// SINCRONIZACIÓN OFFLINE
+                val pendientes = ReportesPendientesLocal.obtener(
+                    context,
+                    uid
+                )
+
+                for (doc in misDocumentos) {
+
+                    val idReporte = doc.id
+
+                    // Solo revisar reportes que esta aplicación
+                    // registró previamente como pendientes.
+                    if (idReporte !in pendientes) continue
+
+                    val tieneCambiosPendientes =
+                        doc.metadata.hasPendingWrites()
+
+                    val provieneDeCache =
+                        doc.metadata.isFromCache
+
+                    if (!tieneCambiosPendientes && !provieneDeCache) {
+
+                        // El documento existe y el servidor confirmó
+                        // su estado actual.
+                        val quitado = ReportesPendientesLocal.quitar(
+                            context,
+                            uid,
+                            idReporte
+                        )
+
+                        if (quitado) {
+                            ReportesPendientesLocal.quitarError(
+                                context,
+                                uid,
+                                idReporte
+                            )
+
+                            val direccion = doc.getString("direccion")
+                                ?.ifBlank { "ubicación registrada" }
+                                ?: "ubicación registrada"
+
+                            notificarSincronizacion(
+                                idNotificacion = "sincronizado_$idReporte",
+                                mensaje = "Tu reporte en \"$direccion\" " +
+                                        "se ha enviado correctamente a Firestore."
+                            )
+                        }
+                    }
+                }
+
                 // 1. Total de reportes enviados
-                totalEnviados = misDocumentos.size
+                totalEnviados = misDocumentos.count { doc ->
+                    !doc.metadata.hasPendingWrites() &&
+                            !doc.metadata.isFromCache
+                }
 
                 // 2. Reportes en revisión
                 totalEnRevision = misDocumentos.count { doc ->
@@ -352,8 +446,83 @@ fun HomeScreen(
                 }
             }
 
+        val preferenciasSincronizacion =
+            ReportesPendientesLocal.preferencias(context)
+
+        fun procesarErroresPendientes() {
+
+            val errores = ReportesPendientesLocal.obtenerErrores(
+                context,
+                uid
+            )
+
+            errores.forEach { idReporte ->
+
+                ReportesPendientesLocal.quitarError(
+                    context,
+                    uid,
+                    idReporte
+                )
+
+                val quitado = ReportesPendientesLocal.quitar(
+                    context,
+                    uid,
+                    idReporte
+                )
+
+                if (quitado) {
+                    notificarSincronizacion(
+                        idNotificacion = "error_envio_$idReporte",
+                        mensaje = "No se pudo enviar uno de tus " +
+                                "reportes. Debes revisar el error " +
+                                "antes de intentar registrarlo nuevamente."
+                    )
+                }
+            }
+        }
+
+        val listenerPreferencias =
+            android.content.SharedPreferences
+                .OnSharedPreferenceChangeListener { _, clave ->
+
+                    if (clave == "errores_$uid") {
+                        procesarErroresPendientes()
+                    }
+                }
+
+        preferenciasSincronizacion
+            .registerOnSharedPreferenceChangeListener(
+                listenerPreferencias
+            )
+
+// Procesar también errores registrados antes de abrir Home.
+        procesarErroresPendientes()
+
         onDispose {
             listener.remove()
+
+            preferenciasSincronizacion
+                .unregisterOnSharedPreferenceChangeListener(
+                    listenerPreferencias
+                )
+        }
+    }
+
+    LaunchedEffect(uid) {
+        if (uid.isBlank()) return@LaunchedEffect
+
+        val pendientes = ReportesPendientesLocal.obtener(
+            context,
+            uid
+        )
+
+        if (pendientes.isNotEmpty()) {
+            snackbarHostState.showSnackbar(
+                message = "Tienes ${pendientes.size} reporte(s) " +
+                        "pendiente(s) de confirmación. " +
+                        "Se sincronizarán al recuperar la conexión.",
+                duration = SnackbarDuration.Long
+            )
         }
     }
 
