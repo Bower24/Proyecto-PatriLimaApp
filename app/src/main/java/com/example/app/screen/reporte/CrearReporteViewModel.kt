@@ -45,7 +45,9 @@ class CrearReporteViewModel(
         descripcion: String,
         severidad: Severidad,
         direccion: String,
-        fotoBase64: String? = null
+        fotoBase64: String? = null,
+        latitud: Double,
+        longitud: Double
     ) {
         if (_estado.value is EnvioReporteEstado.Enviando ||
             _estado.value is EnvioReporteEstado.EnCola
@@ -77,7 +79,9 @@ class CrearReporteViewModel(
             descripcion = descripcion.trim(),
             direccion = direccion.trim(),
             severidad = severidad,
-            fotoBase64 = fotoBase64
+            fotoBase64 = fotoBase64,
+            latitud = latitud,
+            longitud = longitud
         )
 
         resultado

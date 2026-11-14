@@ -38,8 +38,8 @@ class FirestoreRepository {
         direccion: String,
         severidad: Severidad,
         fotoBase64: String? = null,
-        latitud: Double = -12.0465,
-        longitud: Double = -77.0305
+        latitud: Double,
+        longitud: Double
     ): Result<String> {
 
         var idRegistrado: String? = null
@@ -54,6 +54,17 @@ class FirestoreRepository {
                     IllegalArgumentException(
                         "La fotografía es demasiado grande. " +
                                 "Selecciona una imagen más pequeña."
+                    )
+                )
+            }
+            if (!latitud.isFinite() ||
+                !longitud.isFinite() ||
+                latitud !in -90.0..90.0 ||
+                longitud !in -180.0..180.0
+            ) {
+                return Result.failure(
+                    IllegalArgumentException(
+                        "Las coordenadas seleccionadas no son válidas."
                     )
                 )
             }

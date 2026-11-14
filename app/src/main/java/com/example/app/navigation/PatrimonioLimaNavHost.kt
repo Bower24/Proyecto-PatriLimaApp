@@ -133,20 +133,26 @@ fun PatrimonioLimaNavHost(
                 onVolver = {
                     navController.popBackStack()
                 },
+
                 onEnviarReporte = {
                         direccion,
                         descripcion,
                         severidad,
-                        imagenBase64 ->
+                        imagenBase64,
+                        latitud,
+                        longitud ->
 
                     viewModel.enviarReporte(
                         context = context,
                         descripcion = descripcion,
                         severidad = severidad,
                         direccion = direccion,
-                        fotoBase64 = imagenBase64
+                        fotoBase64 = imagenBase64,
+                        latitud = latitud,
+                        longitud = longitud
                     )
                 },
+
                 enviando = estadoEnvio is EnvioReporteEstado.Enviando,
                 mensajeError =
                     (estadoEnvio as? EnvioReporteEstado.Error)?.mensaje
