@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.content.Context
+import com.patrimonialima.app.data.location.ZonaPermitidaLima
 
 sealed class EnvioReporteEstado {
     object Idle : EnvioReporteEstado()
@@ -67,6 +68,13 @@ class CrearReporteViewModel(
         if (descripcion.isBlank() || direccion.isBlank()) {
             _estado.value = EnvioReporteEstado.Error(
                 "Completa la dirección y la descripción"
+            )
+            return
+        }
+        if (!ZonaPermitidaLima.contiene(latitud, longitud)) {
+            _estado.value = EnvioReporteEstado.Error(
+                "El reporte debe ubicarse dentro del área " +
+                        "permitida del Centro Histórico de Lima."
             )
             return
         }

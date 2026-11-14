@@ -164,9 +164,14 @@ fun CrearReporteScreen(
             latitudInicial = latitudSeleccionada,
             longitudInicial = longitudSeleccionada,
 
-            onConfirmar = { latitud, longitud ->
+            onConfirmar = { latitud, longitud, nuevaDireccion ->
                 latitudSeleccionada = latitud
                 longitudSeleccionada = longitud
+
+                if (!nuevaDireccion.isNullOrBlank()) {
+                    direccion = nuevaDireccion
+                }
+
                 mostrarSelectorUbicacion = false
             },
 
