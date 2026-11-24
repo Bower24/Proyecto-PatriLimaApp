@@ -49,6 +49,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     // Navigation para Jetpack Compose
     implementation("androidx.navigation:navigation-compose:2.8.2")
+    implementation(libs.androidx.junit.ktx)
     //implementation(libs.firebase.auth.ktx) // o la versión compatible con tu Compose
     debugImplementation("androidx.compose.ui:ui-tooling")
 
@@ -85,11 +86,16 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
+// Pruebas instrumentadas Android
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     implementation(kotlin("test"))
+
 }

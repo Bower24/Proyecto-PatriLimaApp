@@ -1,3 +1,4 @@
+
 package com.patrimonialima.app.utils
 
 import android.content.Context
@@ -6,31 +7,242 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
 import java.io.ByteArrayOutputStream
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 object ImageUtils {
-    fun uriABase64(context: Context, uri: Uri): String? {
+
+    fun uriABase64(
+        context: Context,
+        uri: Uri
+    ): String? {
+
         return try {
-            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
-            val bitmapOriginal = BitmapFactory.decodeStream(inputStream)
-            inputStream.close()
 
-            // Redimensionar a un tamaño máximo manejable (640 px)
-            val maxDimension = 640
-            val ratio = bitmapOriginal.width.toFloat() / bitmapOriginal.height.toFloat()
-            val targetWidth = if (ratio > 1) maxDimension else (maxDimension * ratio).toInt()
-            val targetHeight = if (ratio > 1) (maxDimension / ratio).toInt() else maxDimension
+            val opciones = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
 
-            val scaledBitmap = Bitmap.createScaledBitmap(bitmapOriginal, targetWidth, targetHeight, true)
+            // Obtener dimensiones sin cargar toda la imagen.
+            context.contentResolver
+                .openInputStream(uri)
+                ?.use { stream ->
+                    BitmapFactory.decodeStream(
+                        stream,
+                        null,
+                        opciones
+                    )
+                } ?: if (
+                opciones.outWidth <= 0 ||
+                opciones.outHeight <= 0
+            ) {
+                return null
+            } else {
+                Unit
+            }
 
-            val outputStream = ByteArrayOutputStream()
-            // Compresión al 65% para mantener el peso entre 40 KB y 80 KB
-            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 65, outputStream)
-            val bytes = outputStream.toByteArray()
+            if (
+                opciones.outWidth <= 0 ||
+                opciones.outHeight <= 0
+            ) {
+                return null
+            }
 
-            "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+            // Reducir el consumo de memoria al decodificar.
+            var sampleSize = 1
+
+            val dimensionMayor = max(
+                opciones.outWidth,
+                opciones.outHeight
+            )
+
+            while (
+                dimensionMayor / sampleSize >
+                PoliticaImagen.MAX_DIMENSION * 2
+            ) {
+                sampleSize *= 2
+            }
+
+            val opcionesDecodificacion =
+                BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+
+            val bitmap = context.contentResolver
+                .openInputStream(uri)
+                ?.use { stream ->
+                    BitmapFactory.decodeStream(
+                        stream,
+                        null,
+                        opcionesDecodificacion
+                    )
+                } ?: return null
+
+            try {
+                bitmapABase64(bitmap)
+            } finally {
+                bitmap.recycle()
+            }
+
         } catch (e: Exception) {
-            e.printStackTrace()
+
+            android.util.Log.e(
+                "ImageUtils",
+                "Error procesando fotografía",
+                e
+            )
+
             null
         }
+    }
+
+    fun bitmapABase64(
+        bitmapOriginal: Bitmap
+    ): String? {
+
+        if (bitmapOriginal.isRecycled) return null
+
+        var bitmapActual = redimensionar(
+            bitmapOriginal,
+            PoliticaImagen.MAX_DIMENSION
+        )
+
+        try {
+
+            // Máximo de seis ciclos de redimensionamiento.
+            repeat(6) {
+
+                var calidad =
+                    PoliticaImagen.CALIDAD_INICIAL
+
+                while (
+                    calidad >=
+                    PoliticaImagen.CALIDAD_MINIMA
+                ) {
+
+                    val bytes =
+                        ByteArrayOutputStream().use { output ->
+
+                            val comprimido =
+                                bitmapActual.compress(
+                                    Bitmap.CompressFormat.JPEG,
+                                    calidad,
+                                    output
+                                )
+
+                            if (!comprimido) return null
+
+                            output.toByteArray()
+                        }
+
+                    if (
+                        PoliticaImagen.jpegDentroDelLimite(
+                            bytes.size
+                        )
+                    ) {
+
+                        val base64 =
+                            PoliticaImagen.PREFIJO +
+                                    Base64.encodeToString(
+                                        bytes,
+                                        Base64.NO_WRAP
+                                    )
+
+                        if (
+                            PoliticaImagen.base64DentroDelLimite(
+                                base64
+                            )
+                        ) {
+
+                            android.util.Log.d(
+                                "ImageUtils",
+                                "JPEG: ${bytes.size} bytes | " +
+                                        "Base64: ${base64.length} bytes | " +
+                                        "Calidad: $calidad | " +
+                                        "Dimensiones: " +
+                                        "${bitmapActual.width}x" +
+                                        "${bitmapActual.height}"
+                            )
+
+                            return base64
+                        }
+                    }
+
+                    calidad -= 5
+                }
+
+                // Si reducir la calidad no fue suficiente,
+                // reducir también las dimensiones.
+                val dimensionActual = max(
+                    bitmapActual.width,
+                    bitmapActual.height
+                )
+
+                val nuevaDimension =
+                    (dimensionActual * 0.8)
+                        .roundToInt()
+                        .coerceAtLeast(1)
+
+                if (nuevaDimension >= dimensionActual) {
+                    return null
+                }
+
+                val nuevoBitmap = redimensionar(
+                    bitmapActual,
+                    nuevaDimension
+                )
+
+                if (
+                    bitmapActual !== bitmapOriginal &&
+                    bitmapActual !== nuevoBitmap
+                ) {
+                    bitmapActual.recycle()
+                }
+
+                bitmapActual = nuevoBitmap
+            }
+
+            return null
+
+        } finally {
+
+            if (bitmapActual !== bitmapOriginal) {
+                bitmapActual.recycle()
+            }
+        }
+    }
+
+    private fun redimensionar(
+        bitmap: Bitmap,
+        maxDimension: Int
+    ): Bitmap {
+
+        val dimensionMayor = max(
+            bitmap.width,
+            bitmap.height
+        )
+
+        // No ampliar imágenes pequeñas.
+        if (dimensionMayor <= maxDimension) {
+            return bitmap
+        }
+
+        val escala =
+            maxDimension.toDouble() / dimensionMayor
+
+        val ancho = (bitmap.width * escala)
+            .roundToInt()
+            .coerceAtLeast(1)
+
+        val alto = (bitmap.height * escala)
+            .roundToInt()
+            .coerceAtLeast(1)
+
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            ancho,
+            alto,
+            true
+        )
     }
 }

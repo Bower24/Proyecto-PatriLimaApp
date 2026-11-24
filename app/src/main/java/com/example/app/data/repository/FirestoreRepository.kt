@@ -14,6 +14,7 @@ import java.util.UUID
 import android.content.Context
 import android.util.Base64
 import com.patrimonialima.app.data.local.ReportesPendientesLocal
+import com.patrimonialima.app.utils.PoliticaImagen
 
 class FirestoreRepository {
 
@@ -47,13 +48,12 @@ class FirestoreRepository {
         return try {
             // Firestore admite como máximo 1 MiB por documento.
             // Dejamos margen para los demás campos.
-            if (fotoBase64 != null &&
-                fotoBase64.toByteArray(Charsets.UTF_8).size > 750_000
-            ) {
+            if (!PoliticaImagen.base64DentroDelLimite(fotoBase64)) {
+
                 return Result.failure(
                     IllegalArgumentException(
-                        "La fotografía es demasiado grande. " +
-                                "Selecciona una imagen más pequeña."
+                        "La fotografía supera el tamaño permitido. " +
+                                "Selecciona otra imagen."
                     )
                 )
             }
